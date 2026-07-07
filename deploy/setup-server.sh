@@ -16,6 +16,16 @@ APP_DIR=/opt/press-journals
 ADMIN_PASSWORD="${ADMIN_PASSWORD:?Set ADMIN_PASSWORD before running (export ADMIN_PASSWORD='...')}"
 APP_DOMAIN="${APP_DOMAIN:-}"
 
+echo "==> [0/6] Ensuring swap exists (small VMs need it for the build + PDF rendering)"
+if [ ! -f /swapfile ] && [ "$(free -m | awk '/^Mem:/{print $2}')" -lt 3000 ]; then
+  sudo fallocate -l 4G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=4096
+  sudo chmod 600 /swapfile
+  sudo mkswap /swapfile
+  sudo swapon /swapfile
+  echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
+  echo "    4G swapfile created"
+fi
+
 echo "==> [1/6] Installing Docker (if missing)"
 if ! command -v docker >/dev/null 2>&1; then
   curl -fsSL https://get.docker.com | sudo sh
