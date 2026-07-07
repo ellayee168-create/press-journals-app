@@ -1,0 +1,43 @@
+{
+  "name": "press-journals-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.10.1",
+    "docx": "^9.7.1",
+    "drizzle-orm": "^0.45.2",
+    "formidable": "^3.5.4",
+    "mammoth": "^1.12.0",
+    "next": "14.2.35",
+    "nodemailer": "^9.0.0",
+    "pdf-lib": "^1.17.1",
+    "pdf-parse": "^2.4.5",
+    "puppeteer": "^25.1.0",
+    "react": "^18",
+    "react-dom": "^18",
+    "sharp": "^0.35.1",
+    "uuid": "^14.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/formidable": "^3.5.1",
+    "@types/node": "^20",
+    "@types/nodemailer": "^8.0.1",
+    "@types/pdf-parse": "^1.1.5",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "@types/uuid": "^10.0.0",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.35",
+    "postcss": "^8",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5"
+  }
+}

@@ -1,0 +1,10 @@
+node_modules
+.next
+uploads
+press-journals.db
+press-journals.db-*
+.env*
+.git
+*.docx
+*.pdf
+.DS_Store
