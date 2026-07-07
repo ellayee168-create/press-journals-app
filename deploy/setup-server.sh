@@ -16,7 +16,7 @@ APP_DIR=/opt/press-journals
 ADMIN_PASSWORD="${ADMIN_PASSWORD:?Set ADMIN_PASSWORD before running (export ADMIN_PASSWORD='...')}"
 APP_DOMAIN="${APP_DOMAIN:-}"
 
-echo "==> [0/6] Ensuring swap exists (small VMs need it for the build + PDF rendering)"
+echo "==> [1/6] Ensuring swap exists (small VMs need it for the build + PDF rendering)"
 if [ ! -f /swapfile ] && [ "$(free -m | awk '/^Mem:/{print $2}')" -lt 3000 ]; then
   sudo fallocate -l 4G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=4096
   sudo chmod 600 /swapfile
@@ -26,16 +26,19 @@ if [ ! -f /swapfile ] && [ "$(free -m | awk '/^Mem:/{print $2}')" -lt 3000 ]; th
   echo "    4G swapfile created"
 fi
 
-echo "==> [1/6] Installing Docker (if missing)"
+echo "==> [2/6] Installing Docker + git (if missing)"
+if ! command -v git >/dev/null 2>&1; then
+  sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git </dev/null
+fi
 if ! command -v docker >/dev/null 2>&1; then
   curl -fsSL https://get.docker.com | sudo sh
 fi
 
-echo "==> [2/6] Opening firewall ports 80/443 (Oracle images ship with restrictive iptables)"
-sudo iptables -I INPUT -p tcp --dport 80 -j ACCEPT 2>/dev/null || true
-sudo iptables -I INPUT -p tcp --dport 443 -j ACCEPT 2>/dev/null || true
-# Persist across reboots if the tool is available
-sudo netfilter-persistent save 2>/dev/null || sudo sh -c 'apt-get install -y iptables-persistent >/dev/null 2>&1 && netfilter-persistent save' || true
+# NOTE on firewalls: web traffic reaches the containers through Docker's published
+# ports (-p 80/443 below). Docker manages its own iptables NAT rules and re-creates
+# them on every boot, so no fragile host-firewall edits are needed. The Oracle
+# security list (ingress 80/443) is still required — that's done in the console.
 
 echo "==> [3/6] Fetching the app"
 if [ -d "$APP_DIR/.git" ]; then
@@ -49,12 +52,14 @@ sudo docker build -t press-journals "$APP_DIR"
 
 echo "==> [5/6] Starting the app container"
 sudo docker volume create press-data >/dev/null
+sudo docker network create press-net 2>/dev/null || true
 sudo docker rm -f press-journals 2>/dev/null || true
 
 if [ -n "$APP_DOMAIN" ]; then BASE_URL="https://$APP_DOMAIN"; else BASE_URL="http://$(curl -fsS ifconfig.me)"; fi
 
+# App is NOT published to the host — only Caddy can reach it via the docker network.
 sudo docker run -d --name press-journals --restart unless-stopped \
-  -p 127.0.0.1:3000:3000 \
+  --network press-net \
   -v press-data:/app/uploads \
   -e DB_PATH=/app/uploads/press-journals.db \
   -e ADMIN_PASSWORD="$ADMIN_PASSWORD" \
@@ -70,14 +75,16 @@ echo "==> [6/6] Setting up Caddy reverse proxy (HTTPS if APP_DOMAIN is set)"
 sudo docker rm -f press-caddy 2>/dev/null || true
 if [ -n "$APP_DOMAIN" ]; then
   # Caddy fetches a Let's Encrypt certificate for the domain automatically.
-  sudo docker run -d --name press-caddy --restart unless-stopped --network host \
+  sudo docker run -d --name press-caddy --restart unless-stopped \
+    --network press-net -p 80:80 -p 443:443 -p 443:443/udp \
     -v caddy-data:/data \
-    caddy:2 caddy reverse-proxy --from "$APP_DOMAIN" --to 127.0.0.1:3000
+    caddy:2 caddy reverse-proxy --from "$APP_DOMAIN" --to press-journals:3000
   echo ""
   echo "✅ Done! The site will be live at: https://$APP_DOMAIN  (cert takes ~30s on first run)"
 else
-  sudo docker run -d --name press-caddy --restart unless-stopped --network host \
-    caddy:2 caddy reverse-proxy --from ":80" --to 127.0.0.1:3000
+  sudo docker run -d --name press-caddy --restart unless-stopped \
+    --network press-net -p 80:80 \
+    caddy:2 caddy reverse-proxy --from ":80" --to press-journals:3000
   echo ""
   echo "✅ Done! The site is live at: $BASE_URL"
   echo "   (No APP_DOMAIN set — running plain HTTP. Set up a free DuckDNS domain for HTTPS.)"

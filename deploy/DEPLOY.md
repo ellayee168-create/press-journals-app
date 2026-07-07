@@ -14,7 +14,13 @@ most of it clicking through Oracle's signup. After that, updates are one command
    - Name: `press-journals`
    - Image: **Ubuntu 24.04** (click "Change image" — Canonical Ubuntu)
    - Shape: click "Change shape" → **Ampere (Arm)** → `VM.Standard.A1.Flex`,
-     2 OCPUs / 8 GB RAM (well inside the free allowance)
+     1 OCPU / 6 GB RAM (well inside the free allowance)
+     - **If Arm shows "out of capacity"**: use the AMD fallback. Under the **AMD**
+       tab pick **`VM.Standard.E2.1.Micro`** — this is the *only* Always-Free AMD
+       shape. **Do NOT pick E5.Flex / E4.Flex / E3.Flex — those are PAID and will
+       charge your card.** If you only see E5/E4, look under "Specialty and
+       previous generation" or filter for the **"Always Free eligible"** tag.
+       The setup script auto-adds swap so the 1 GB Micro shape runs fine.
    - Networking: keep the defaults ("Create new virtual cloud network"), and make
      sure **"Assign a public IPv4 address" is checked**
    - SSH keys: choose **Generate a key pair for me** → download the private key
