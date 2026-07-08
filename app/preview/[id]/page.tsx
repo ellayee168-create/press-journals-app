@@ -9,7 +9,16 @@ export default function PreviewPage() {
   const { id } = useParams<{ id: string }>();
   const [stage, setStage] = useState<Stage>('checking');
   const [dots, setDots] = useState('');
+  const [isEditor, setIsEditor] = useState(false);
   const iframeLoaded = useRef(false);
+
+  // Editors get a way back to the submission detail; students never see it.
+  useEffect(() => {
+    fetch('/api/admin/login')
+      .then(r => r.json())
+      .then(d => setIsEditor(!!d.authed))
+      .catch(() => {});
+  }, []);
 
   // Animate ellipsis during generation
   useEffect(() => {
@@ -42,6 +51,14 @@ export default function PreviewPage() {
           <span className="ml-3 text-[#2BA4C8] text-sm font-medium">Article Preview</span>
         </div>
         <div className="flex gap-3 items-center">
+          {isEditor && (
+            <a
+              href={`/admin/${id}`}
+              className="px-4 py-2 bg-white/10 border border-[#2BA4C8] text-[#7fd0e8] rounded-lg text-sm font-semibold hover:bg-white/20 transition"
+            >
+              ← Back to Submission
+            </a>
+          )}
           <a
             href={pdfSrc}
             download
@@ -49,12 +66,14 @@ export default function PreviewPage() {
           >
             ↓ Download PDF
           </a>
-          <a
-            href="/"
-            className="px-4 py-2 border border-gray-500 text-gray-300 rounded-lg text-sm hover:bg-white/10 transition"
-          >
-            ← New Submission
-          </a>
+          {!isEditor && (
+            <a
+              href="/"
+              className="px-4 py-2 border border-gray-500 text-gray-300 rounded-lg text-sm hover:bg-white/10 transition"
+            >
+              ← New Submission
+            </a>
+          )}
         </div>
       </div>
 
