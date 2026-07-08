@@ -71,14 +71,23 @@ const FIG_BOX_PX = 250;
 
 interface FigureDims { width: number; height: number }
 
+// Tallest a figure image may render, matching the PDF's 4.5in cap — a very tall
+// portrait image otherwise exceeds the remaining page space and forces Word to
+// push the float (and surrounding text) to the next page.
+const FIG_MAX_HEIGHT_PX = 380;
+
 // Read real pixel dimensions so images keep their aspect ratio (no stretching).
 async function figureDimensions(fig: Figure): Promise<FigureDims | null> {
   try {
     const sharp = (await import('sharp')).default;
     const meta = await sharp(fig.path).metadata();
     if (!meta.width || !meta.height) return null;
-    const width = FIG_BOX_PX;
-    const height = Math.round((meta.height / meta.width) * width);
+    let width = FIG_BOX_PX;
+    let height = Math.round((meta.height / meta.width) * width);
+    if (height > FIG_MAX_HEIGHT_PX) {
+      width = Math.round((FIG_MAX_HEIGHT_PX / height) * width);
+      height = FIG_MAX_HEIGHT_PX;
+    }
     return { width, height };
   } catch {
     return null;
@@ -132,7 +141,9 @@ function figureFloat(fig: Figure, dims: FigureDims | null): Table | null {
       horizontalAnchor: TableAnchorType.TEXT,
       verticalAnchor: TableAnchorType.TEXT,
       relativeHorizontalPosition: RelativeHorizontalPosition.RIGHT,
-      relativeVerticalPosition: RelativeVerticalPosition.INSIDE,
+      // INLINE = float sits at its natural position in the text flow. (INSIDE
+      // pinned figures toward the page edge, causing erratic page breaks.)
+      relativeVerticalPosition: RelativeVerticalPosition.INLINE,
       overlap: OverlapType.NEVER,
       leftFromText: 180,
       bottomFromText: 120,
