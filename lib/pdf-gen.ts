@@ -12,18 +12,18 @@ export async function htmlToPdf(
   accentColor = '#2BA4C8',
   showFooter = true,
 ): Promise<Buffer> {
-  const puppeteer = await import('puppeteer');
-  const browser = await puppeteer.default.launch({
+  // Playwright's Chromium build is used (not the distro's) because it's tested
+  // on ARM Linux containers — Debian's own chromium crashes with SIGILL on
+  // Ampere/Oracle VMs. Install locally with: npx playwright install chromium
+  const { chromium } = await import('playwright');
+  const browser = await chromium.launch({
     headless: true,
-    // In Docker we install Debian's chromium and point to it (see Dockerfile);
-    // locally this is unset and puppeteer uses its own bundled browser.
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
   });
   try {
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: 'load' });
-    await new Promise(r => setTimeout(r, 600));
+    await page.waitForTimeout(600);
 
     const sharedBase = `
       font-family: Arial, Helvetica, sans-serif;
