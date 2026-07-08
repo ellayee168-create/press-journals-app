@@ -1,7 +1,32 @@
 import { PDFDocument } from 'pdf-lib';
+import type { Browser } from 'playwright';
+
+// Playwright's Chromium build is used (not the distro's) because it's tested
+// on ARM Linux containers — Debian's own chromium crashes with SIGILL on
+// Ampere/Oracle VMs. Install locally with: npx playwright install chromium
+//
+// The browser is launched once and reused across requests — launching Chromium
+// is by far the slowest part of PDF generation (several seconds on a 1-OCPU VM).
+let browserPromise: Promise<Browser> | null = null;
+
+async function getBrowser(): Promise<Browser> {
+  if (browserPromise) {
+    const existing = await browserPromise.catch(() => null);
+    if (existing && existing.isConnected()) return existing;
+    browserPromise = null; // crashed or failed to launch — relaunch below
+  }
+  browserPromise = (async () => {
+    const { chromium } = await import('playwright');
+    return chromium.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    });
+  })();
+  return browserPromise;
+}
 
 /**
- * Renders an HTML string to a PDF buffer via Puppeteer.
+ * Renders an HTML string to a PDF buffer via headless Chromium.
  * footerAuthor: "LAST, FIRST" shown bottom-left.
  * accentColor: journal hex color for the teal footer bar.
  * showFooter: set false for cover/frontmatter pages that have their own styling.
@@ -12,16 +37,9 @@ export async function htmlToPdf(
   accentColor = '#2BA4C8',
   showFooter = true,
 ): Promise<Buffer> {
-  // Playwright's Chromium build is used (not the distro's) because it's tested
-  // on ARM Linux containers — Debian's own chromium crashes with SIGILL on
-  // Ampere/Oracle VMs. Install locally with: npx playwright install chromium
-  const { chromium } = await import('playwright');
-  const browser = await chromium.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-  });
+  const browser = await getBrowser();
+  const page = await browser.newPage();
   try {
-    const page = await browser.newPage();
     await page.setContent(html, { waitUntil: 'load' });
     await page.waitForTimeout(600);
 
@@ -64,7 +82,8 @@ export async function htmlToPdf(
 
     return Buffer.from(pdf);
   } finally {
-    await browser.close();
+    // Close only the page — the shared browser stays warm for the next request.
+    await page.close().catch(() => {});
   }
 }
 
