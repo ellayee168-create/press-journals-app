@@ -315,6 +315,10 @@ function IssueBuilderTab() {
           author_spotlight: JSON.parse(typeof d.author_spotlight === 'string' ? d.author_spotlight : JSON.stringify(d.author_spotlight || [])),
         });
       }
+      // Show that a previously uploaded cover photo is still on file
+      if (d.cover_photo_path) {
+        setCoverFilename(d.cover_photo_path.split('/').pop() || 'cover photo on file');
+      }
     }).catch(() => {});
 
     fetch('/api/admin/submissions').then(r => r.json()).then(setSubmissions).catch(() => {});
@@ -418,7 +422,7 @@ function IssueBuilderTab() {
             onChange={e => { const f = e.target.files?.[0]; if (f) uploadCover(f); }}
           />
           {coverFilename ? (
-            <p className="text-green-700 font-medium text-sm">✓ {coverFilename}</p>
+            <p className="text-green-700 font-medium text-sm">✓ {coverFilename} <span className="text-gray-400 font-normal">(click or drop to replace)</span></p>
           ) : (
             <>
               <p className="text-gray-500 text-sm font-medium">Drop image here or click to browse</p>
@@ -579,7 +583,18 @@ export default function AdminPage() {
           <span className="text-2xl font-black">PRESS Journals</span>
           <span className="ml-3 text-[#2BA4C8] text-sm font-semibold">Editor Dashboard</span>
         </div>
-        <a href="/" className="text-xs text-gray-400 hover:text-white">← Submission Form</a>
+        <div className="flex items-center gap-4">
+          <a href="/" className="text-xs text-gray-400 hover:text-white">← Submission Form</a>
+          <button
+            onClick={async () => {
+              await fetch('/api/admin/logout', { method: 'POST' });
+              setAuthed(false);
+            }}
+            className="text-xs text-gray-400 hover:text-white border border-gray-600 rounded px-3 py-1.5"
+          >
+            Log out
+          </button>
+        </div>
       </header>
 
       {/* Tab bar */}

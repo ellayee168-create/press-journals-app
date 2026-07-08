@@ -159,24 +159,30 @@ export default function AdminSubmissionPage() {
       notify = noteInput !== null;
       note = noteInput || undefined;
     }
-    await fetch('/api/admin/status', {
+    const res = await fetch('/api/admin/status', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, status, note, notify }),
     });
+    if (handleExpired(res)) return;
     setSub(prev => prev ? { ...prev, status: status as Submission['status'] } : prev);
   }
 
   async function saveFigurePlacements() {
     setSavingFigs(true);
-    await fetch(`/api/admin/save-figures/${id}`, {
+    const res = await fetch(`/api/admin/save-figures/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ figures }),
     });
     setSavingFigs(false);
-    setFigSaved(true);
-    setTimeout(() => setFigSaved(false), 2500);
+    if (handleExpired(res)) return;
+    if (res.ok) {
+      setFigSaved(true);
+      setTimeout(() => setFigSaved(false), 2500);
+    } else {
+      alert('Saving figure placements failed — please try again.');
+    }
   }
 
   function setFigSection(figNumber: number, sectionIndex: number | undefined) {
@@ -201,6 +207,7 @@ export default function AdminSubmissionPage() {
       body: JSON.stringify({ sections: updated }),
     });
     setSavingSections(false);
+    if (handleExpired(res)) return;
     if (res.ok) {
       setSections(updated);
       setEditingSections(false);
@@ -222,10 +229,25 @@ export default function AdminSubmissionPage() {
     });
   }
 
+  // Session-expiry guard: admin cookies last 8h; without this, a stale session
+  // just shows a generic "failed" with no way to understand or recover.
+  function handleExpired(res: Response): boolean {
+    if (res.status === 401) {
+      alert('Your editor session has expired. Please log in again — your work on this page since the last save is not stored.');
+      router.push('/admin');
+      return true;
+    }
+    return false;
+  }
+
   async function reparse() {
+    if (!confirm(
+      'Re-parse the manuscript?\n\nThis re-reads the uploaded file and REPLACES the current sections and references — including any manual edits made with "Edit sections". Figure placements are re-matched too.\n\nContinue?'
+    )) return;
     setReparsing(true);
     setReparseMsg('');
     const res = await fetch(`/api/admin/reparse/${id}`, { method: 'POST' });
+    if (handleExpired(res)) return;
     if (res.ok) {
       const data = await res.json();
       setSections(data.sections);
