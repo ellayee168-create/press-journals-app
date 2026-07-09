@@ -3,14 +3,10 @@ import {
   BorderStyle,
   Document,
   ImageRun,
-  OverlapType,
   Packer,
   Paragraph,
-  RelativeHorizontalPosition,
-  RelativeVerticalPosition,
   ShadingType,
   Table,
-  TableAnchorType,
   TableCell,
   TableRow,
   TextRun,
@@ -65,9 +61,8 @@ function textToParagraphs(text: string): Paragraph[] {
     .map((p, i) => bodyParagraph(p, i > 0)); // first paragraph of a section not indented
 }
 
-// Target on-page width of a floated figure box, in EMU-independent pixels.
-// ~43% of the text column, matching the PDF's float width.
-const FIG_BOX_PX = 250;
+// Display width of an inline figure image (~4in on the page).
+const FIG_BOX_PX = 384;
 
 interface FigureDims { width: number; height: number }
 
@@ -94,63 +89,40 @@ async function figureDimensions(fig: Figure): Promise<FigureDims | null> {
   }
 }
 
-// A figure as a right-floated box (caption above image) with text wrapping around
-// it — the Word equivalent of the PDF's float:right figures, and still draggable.
-function figureFloat(fig: Figure, dims: FigureDims | null): Table | null {
+// A figure as a clean inline block: caption line, then centered image. Inline
+// placement flows like normal document content, so Word never has to relocate a
+// floating object — which is what caused erratic page breaks. (The PDF keeps the
+// magazine-style right-float layout; the Word doc optimises for stable editing.)
+function figureInline(fig: Figure, dims: FigureDims | null): Paragraph[] {
   let imageData: Buffer;
   try {
     imageData = fs.readFileSync(fig.path);
   } catch {
-    return null;
+    return [];
   }
-  const noBorder = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' } as const;
-
-  const cell = new TableCell({
-    margins: { top: 40, bottom: 40, left: 40, right: 40 },
-    children: [
-      new Paragraph({
-        children: [
-          run(`Figure ${fig.number}: `, { size: PT(9), bold: true, color: '333333' }),
-          run(fig.caption || '', { size: PT(9), color: '333333' }),
-        ],
-        spacing: { after: 60 },
-      }),
-      new Paragraph({
-        children: [
-          new ImageRun({
-            data: imageData,
-            transformation: dims
-              ? { width: dims.width, height: dims.height }
-              : { width: FIG_BOX_PX, height: Math.round(FIG_BOX_PX * 0.75) },
-            type: fig.filename.toLowerCase().endsWith('.png') ? 'png' : 'jpg',
-          }),
-        ],
-      }),
-    ],
-  });
-
-  return new Table({
-    // ~43% of a 6.5in text column ≈ 2.8in → 4032 twips.
-    width: { size: 4032, type: WidthType.DXA },
-    columnWidths: [4032],
-    borders: {
-      top: noBorder, bottom: noBorder, left: noBorder, right: noBorder,
-      insideHorizontal: noBorder, insideVertical: noBorder,
-    },
-    float: {
-      horizontalAnchor: TableAnchorType.TEXT,
-      verticalAnchor: TableAnchorType.TEXT,
-      relativeHorizontalPosition: RelativeHorizontalPosition.RIGHT,
-      // INLINE = float sits at its natural position in the text flow. (INSIDE
-      // pinned figures toward the page edge, causing erratic page breaks.)
-      relativeVerticalPosition: RelativeVerticalPosition.INLINE,
-      overlap: OverlapType.NEVER,
-      leftFromText: 180,
-      bottomFromText: 120,
-      topFromText: 60,
-    },
-    rows: [new TableRow({ children: [cell] })],
-  });
+  return [
+    new Paragraph({
+      children: [
+        run(`Figure ${fig.number}: `, { size: PT(9), bold: true, color: '333333' }),
+        run(fig.caption || '', { size: PT(9), color: '333333' }),
+      ],
+      spacing: { before: 200, after: 60 },
+      keepNext: true, // caption stays on the same page as its image
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [
+        new ImageRun({
+          data: imageData,
+          transformation: dims
+            ? { width: dims.width, height: dims.height }
+            : { width: FIG_BOX_PX, height: Math.round(FIG_BOX_PX * 0.75) },
+          type: fig.filename.toLowerCase().endsWith('.png') ? 'png' : 'jpg',
+        }),
+      ],
+      spacing: { after: 200 },
+    }),
+  ];
 }
 
 // First-page masthead: navy issue box on the left, PRESS Journals wordmark + journal
@@ -291,11 +263,8 @@ export async function generateArticleDocx(data: ArticleData): Promise<Buffer> {
   await Promise.all(
     data.figures.map(async f => { dimsByNumber.set(f.number, await figureDimensions(f)); })
   );
-  // A floated figure must be followed by body text for the wrap to take effect;
-  // Word anchors the float to the paragraph it precedes.
   const pushFigure = (f: Figure) => {
-    const t = figureFloat(f, dimsByNumber.get(f.number) ?? null);
-    if (t) children.push(t);
+    children.push(...figureInline(f, dimsByNumber.get(f.number) ?? null));
   };
 
   if (layout.rawText !== undefined) {
