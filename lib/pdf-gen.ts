@@ -39,6 +39,10 @@ export async function htmlToPdf(
 ): Promise<Buffer> {
   const browser = await getBrowser();
   const page = await browser.newPage();
+  // Escape the author name — it comes from user input and is interpolated into
+  // the footer HTML below, so a name containing < & " must not break the markup.
+  const safeAuthor = footerAuthor
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   try {
     await page.setContent(html, { waitUntil: 'load' });
     await page.waitForTimeout(600);
@@ -57,7 +61,7 @@ export async function htmlToPdf(
       <div style="${sharedBase}">
         <div style="width:100%; height:4pt; background:${accentColor}; margin-bottom:4pt;"></div>
         <div style="display:flex; justify-content:space-between; align-items:center;">
-          <span style="text-transform:uppercase; letter-spacing:0.3pt;">${footerAuthor}</span>
+          <span style="text-transform:uppercase; letter-spacing:0.3pt;">${safeAuthor}</span>
           <span style="font-size:8pt;" class="pageNumber"></span>
         </div>
         <div style="text-align:center; margin-top:2pt; font-size:7pt; color:#777;">PRESS-Journals.org</div>

@@ -42,7 +42,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     issueNumber: issueSettings?.issue_number,
   });
 
-  const filename = `${row.last_name}_${row.first_name}_article.docx`;
+  const safe = (s: string) => (s || '').replace(/[^a-zA-Z0-9._-]/g, '_');
+  const filename = `${safe(row.last_name)}_${safe(row.first_name)}_article.docx`;
   return new NextResponse(buffer as unknown as BodyInit, {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',

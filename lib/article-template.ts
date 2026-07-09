@@ -73,14 +73,10 @@ function makeFigure(fig: Figure, id: string, embed: boolean): string {
 </div>`;
 }
 
-export function buildArticleHtml(data: ArticleData, embed = false, mode: 'web' | 'word' = 'web'): string {
+export function buildArticleHtml(data: ArticleData, embed = false): string {
   const cfg = getJournalConfig(data.journal);
   const accent = cfg.color;
   const dark = cfg.dark;
-  // Word opens HTML as an editable document; it needs self-contained (base64)
-  // images and its own page-setup CSS rather than the on-screen preview chrome.
-  const forWord = mode === 'word';
-  if (forWord) embed = true;
 
   const season = data.issueSeason ?? '';
   const issueLabel = data.issueNumber ? `Issue ${data.issueNumber}` : '';
@@ -190,19 +186,6 @@ body {
   }
 }
 @media print { .wrap { padding: 0; } }
-
-${forWord ? `
-/* ── Word document page setup (MS Word reads these mso rules) ── */
-@page WordSection1 {
-  size: 8.5in 11.0in;
-  margin: 0.7in 0.75in 0.85in 0.75in;
-  mso-page-orientation: portrait;
-}
-div.WordSection1 { page: WordSection1; }
-body { background: #ffffff; }
-.wrap { max-width: none; margin: 0; padding: 0; box-shadow: none; min-height: 0; background: #ffffff; }
-.screen-footer, .screen-footer-url { display: none; }
-` : ''}
 
 /* ── First-page header ───────────────────────── */
 .article-first-header {
@@ -398,7 +381,7 @@ p.no-indent { text-indent: 0; }
 </style>
 </head>
 <body>
-<div class="${forWord ? 'WordSection1 ' : ''}wrap">
+<div class="wrap">
 
   <!-- ── First-page header ── -->
   <div class="article-first-header">

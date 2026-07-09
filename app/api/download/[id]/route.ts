@@ -52,7 +52,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const cfg = getJournalConfig(row.journal);
   try {
     const pdf = await htmlToPdf(html, footerAuthor, cfg.color, true);
-    const filename = `${row.last_name}_${row.first_name}_article.pdf`;
+    // Strip characters that would break the Content-Disposition header.
+    const safe = (s: string) => (s || '').replace(/[^a-zA-Z0-9._-]/g, '_');
+    const filename = `${safe(row.last_name)}_${safe(row.first_name)}_article.pdf`;
 
     return new NextResponse(pdf as unknown as BodyInit, {
       headers: {
