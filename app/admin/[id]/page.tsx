@@ -313,7 +313,7 @@ export default function AdminSubmissionPage() {
               href={`/api/admin/download-docx/${sub.id}`}
               className="px-4 py-2 border border-gray-400 text-gray-600 rounded-lg text-sm font-semibold hover:bg-gray-50"
             >
-              ⬇ Download DOCX (editable)
+              ⬇ Download Word (editable)
             </a>
             <select
               value={sub.status}
@@ -387,7 +387,7 @@ export default function AdminSubmissionPage() {
           {editingSections && draft ? (
             <div className="space-y-4">
               <p className="text-xs text-gray-500">
-                Edit headings and text directly — the preview, PDF, and DOCX all use this structure.
+                Edit headings and text directly — the preview, PDF, and Word download all use this structure.
                 Re-parsing the manuscript will overwrite these edits.
               </p>
 
