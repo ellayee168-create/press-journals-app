@@ -2,6 +2,8 @@ import {
   AlignmentType,
   BorderStyle,
   Document,
+  HorizontalPositionAlign,
+  HorizontalPositionRelativeFrom,
   ImageRun,
   Packer,
   Paragraph,
@@ -10,11 +12,13 @@ import {
   TableCell,
   TableRow,
   TextRun,
+  TextWrappingSide,
+  TextWrappingType,
+  VerticalPositionRelativeFrom,
   WidthType,
 } from 'docx';
-import fs from 'fs';
 import { ArticleData } from './article-template';
-import { buildArticleLayout, meaningfulAcknowledgments } from './article-layout';
+import { buildArticleLayout, meaningfulAcknowledgments, cleanCaption } from './article-layout';
 import { getJournalConfig } from './journals';
 import { Figure } from './db';
 
@@ -52,77 +56,103 @@ function bodyParagraph(text: string, firstIndent = true): Paragraph {
   });
 }
 
-function textToParagraphs(text: string): Paragraph[] {
-  if (!text) return [];
-  return text
-    .split(/\n{2,}/)
-    .map(p => p.replace(/\n/g, ' ').trim())
-    .filter(Boolean)
-    .map((p, i) => bodyParagraph(p, i > 0)); // first paragraph of a section not indented
+// Display width of a right-floated figure, ~43% of the text column (matches the PDF).
+const FIG_FLOAT_PX = 250;
+// Cap the image portion's display height so a tall figure fits comfortably beside text.
+const FIG_MAX_IMG_PX = 300;
+// Render everything at 2× for crisp text/image, then display at half size.
+const SCALE = 2;
+
+interface RenderedFigure { data: Buffer; width: number; height: number }
+
+function escXml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// Display width of an inline figure image (~4in on the page).
-const FIG_BOX_PX = 384;
+// Greedy word-wrap to a pixel width for the given font size.
+function wrapLines(text: string, maxWidthPx: number, fontPx: number): string[] {
+  const charW = fontPx * 0.52; // rough average glyph width for Arial
+  const maxChars = Math.max(8, Math.floor(maxWidthPx / charW));
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let cur = '';
+  for (const w of words) {
+    if (cur && (cur.length + 1 + w.length) > maxChars) { lines.push(cur); cur = w; }
+    else cur = cur ? `${cur} ${w}` : w;
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
 
-interface FigureDims { width: number; height: number }
-
-// Tallest a figure image may render, matching the PDF's 4.5in cap — a very tall
-// portrait image otherwise exceeds the remaining page space and forces Word to
-// push the float (and surrounding text) to the next page.
-const FIG_MAX_HEIGHT_PX = 380;
-
-// Read real pixel dimensions so images keep their aspect ratio (no stretching).
-async function figureDimensions(fig: Figure): Promise<FigureDims | null> {
+// Composite the caption above the image into a single PNG, so the whole figure
+// (caption + image) travels together as one floating object in Word — a separate
+// caption paragraph can't stay attached to a floated image.
+async function renderFigure(fig: Figure): Promise<RenderedFigure | null> {
   try {
     const sharp = (await import('sharp')).default;
     const meta = await sharp(fig.path).metadata();
     if (!meta.width || !meta.height) return null;
-    let width = FIG_BOX_PX;
-    let height = Math.round((meta.height / meta.width) * width);
-    if (height > FIG_MAX_HEIGHT_PX) {
-      width = Math.round((FIG_MAX_HEIGHT_PX / height) * width);
-      height = FIG_MAX_HEIGHT_PX;
+
+    let dispW = FIG_FLOAT_PX;
+    let dispImgH = Math.round((meta.height / meta.width) * dispW);
+    if (dispImgH > FIG_MAX_IMG_PX) {
+      dispImgH = FIG_MAX_IMG_PX;
+      dispW = Math.round((meta.width / meta.height) * dispImgH);
     }
-    return { width, height };
+    const cW = dispW * SCALE;
+    const cImgH = dispImgH * SCALE;
+    const img = await sharp(fig.path).resize(cW, cImgH, { fit: 'fill' }).toBuffer();
+
+    // Caption banner (rendered as SVG so text is crisp and wraps like the PDF caption).
+    const fontPx = 9 * SCALE;
+    const lineH = Math.round(fontPx * 1.35);
+    const padX = 2 * SCALE, padTop = 2 * SCALE, padBottom = 5 * SCALE;
+    const caption = `Figure ${fig.number}: ${cleanCaption(fig.caption)}`.trim();
+    const lines = wrapLines(caption, cW - padX * 2, fontPx);
+    const bannerH = padTop + lines.length * lineH + padBottom;
+    const tspans = lines
+      .map((ln, i) => `<tspan x="${padX}" y="${padTop + (i + 1) * lineH - Math.round(lineH * 0.28)}">${escXml(ln)}</tspan>`)
+      .join('');
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${cW}" height="${bannerH}">`
+      + `<rect width="100%" height="100%" fill="#ffffff"/>`
+      + `<text font-family="Arial, Helvetica, sans-serif" font-size="${fontPx}px" fill="#333333">${tspans}</text>`
+      + `</svg>`;
+
+    const totalH = bannerH + cImgH;
+    const composite = await sharp({ create: { width: cW, height: totalH, channels: 3, background: '#ffffff' } })
+      .composite([{ input: Buffer.from(svg), top: 0, left: 0 }, { input: img, top: bannerH, left: 0 }])
+      .png()
+      .toBuffer();
+
+    return { data: composite, width: dispW, height: Math.round(totalH / SCALE) };
   } catch {
     return null;
   }
 }
 
-// A figure as a clean inline block: caption line, then centered image. Inline
-// placement flows like normal document content, so Word never has to relocate a
-// floating object — which is what caused erratic page breaks. (The PDF keeps the
-// magazine-style right-float layout; the Word doc optimises for stable editing.)
-function figureInline(fig: Figure, dims: FigureDims | null): Paragraph[] {
-  let imageData: Buffer;
-  try {
-    imageData = fs.readFileSync(fig.path);
-  } catch {
-    return [];
-  }
-  return [
-    new Paragraph({
-      children: [
-        run(`Figure ${fig.number}: `, { size: PT(9), bold: true, color: '333333' }),
-        run(fig.caption || '', { size: PT(9), color: '333333' }),
-      ],
-      spacing: { before: 200, after: 60 },
-      keepNext: true, // caption stays on the same page as its image
-    }),
-    new Paragraph({
-      alignment: AlignmentType.CENTER,
-      children: [
-        new ImageRun({
-          data: imageData,
-          transformation: dims
-            ? { width: dims.width, height: dims.height }
-            : { width: FIG_BOX_PX, height: Math.round(FIG_BOX_PX * 0.75) },
-          type: fig.filename.toLowerCase().endsWith('.png') ? 'png' : 'jpg',
-        }),
-      ],
-      spacing: { after: 200 },
-    }),
-  ];
+// A right-floated figure image with text wrapping to its left — mirrors the PDF.
+// Floating IMAGES (unlike floating tables) let text reflow across pages cleanly,
+// so this avoids the erratic page breaks the table version caused. Returned as a
+// run so it can be anchored inside the section's first body paragraph.
+function figureFloatRun(rf: RenderedFigure): ImageRun {
+  return new ImageRun({
+    data: rf.data,
+    type: 'png',
+    transformation: { width: rf.width, height: rf.height },
+    floating: {
+      horizontalPosition: {
+        relative: HorizontalPositionRelativeFrom.COLUMN,
+        align: HorizontalPositionAlign.RIGHT,
+      },
+      verticalPosition: {
+        relative: VerticalPositionRelativeFrom.PARAGRAPH,
+        offset: 0,
+      },
+      wrap: { type: TextWrappingType.SQUARE, side: TextWrappingSide.LEFT },
+      margins: { left: 137160, bottom: 91440 }, // ~0.15in / 0.1in in EMU
+      allowOverlap: false,
+    },
+  });
 }
 
 // First-page masthead: navy issue box on the left, PRESS Journals wordmark + journal
@@ -258,36 +288,67 @@ export async function generateArticleDocx(data: ArticleData): Promise<Buffer> {
   // ── Body (shared layout — identical structure/figure placement to the PDF) ─
   const layout = buildArticleLayout(data.sections, data.figures);
 
-  // Precompute every figure's real aspect ratio up front (async).
-  const dimsByNumber = new Map<number, FigureDims | null>();
+  // Precompute every figure (caption composited onto image) up front (async).
+  const renderedByNumber = new Map<number, RenderedFigure | null>();
   await Promise.all(
-    data.figures.map(async f => { dimsByNumber.set(f.number, await figureDimensions(f)); })
+    data.figures.map(async f => { renderedByNumber.set(f.number, await renderFigure(f)); })
   );
-  const pushFigure = (f: Figure) => {
-    children.push(...figureInline(f, dimsByNumber.get(f.number) ?? null));
+  const floatRunsFor = (figs: Figure[]): ImageRun[] =>
+    figs
+      .map(f => renderedByNumber.get(f.number))
+      .filter((rf): rf is RenderedFigure => !!rf)
+      .map(figureFloatRun);
+
+  // Emit a section's body text, anchoring its floated figures inside the first
+  // paragraph so text wraps to their left (matching the PDF). If the section has
+  // no body text, the floats get their own paragraph.
+  const emitBody = (
+    subs: { subheading?: string; text: string }[],
+    floats: ImageRun[],
+  ) => {
+    let floatsPlaced = false;
+    const placeFloats = (leadRuns: (ImageRun | TextRun)[]): (ImageRun | TextRun)[] => {
+      if (floatsPlaced || floats.length === 0) return leadRuns;
+      floatsPlaced = true;
+      return [...floats, ...leadRuns];
+    };
+    for (const sub of subs) {
+      if (sub.subheading) {
+        children.push(
+          new Paragraph({
+            children: [run(sub.subheading, { size: PT(10), bold: true, italics: true, color: '333333' })],
+            spacing: { before: 120, after: 40 },
+            keepNext: true,
+          })
+        );
+      }
+      const paras = (sub.text || '')
+        .split(/\n{2,}/).map(p => p.replace(/\n/g, ' ').trim()).filter(Boolean);
+      paras.forEach((p, i) => {
+        children.push(
+          new Paragraph({
+            children: placeFloats([run(p, { size: PT(10) })]),
+            alignment: AlignmentType.JUSTIFIED,
+            spacing: { after: 80, line: 276 },
+            indent: i > 0 ? { firstLine: 240 } : undefined,
+          })
+        );
+      });
+    }
+    if (!floatsPlaced && floats.length > 0) {
+      children.push(new Paragraph({ children: floats }));
+    }
   };
 
   if (layout.rawText !== undefined) {
-    layout.allFiguresIfRaw.forEach(pushFigure);
-    children.push(...textToParagraphs(layout.rawText));
+    emitBody([{ text: layout.rawText }], floatRunsFor(layout.allFiguresIfRaw));
   } else {
     for (const section of layout.sections) {
       children.push(sectionHeading(section.heading, accent));
-      section.figures.forEach(pushFigure);
-      for (const sub of section.subsections) {
-        if (sub.subheading) {
-          children.push(
-            new Paragraph({
-              children: [run(sub.subheading, { size: PT(10), bold: true, italics: true, color: '333333' })],
-              spacing: { before: 120, after: 40 },
-              keepNext: true,
-            })
-          );
-        }
-        children.push(...textToParagraphs(sub.text));
-      }
+      emitBody(section.subsections, floatRunsFor(section.figures));
     }
-    layout.trailingFigures.forEach(pushFigure);
+    const trailing = floatRunsFor(layout.trailingFigures);
+    if (trailing.length) children.push(new Paragraph({ children: trailing }));
   }
 
   // ── Acknowledgements ──────────────────────────────────────────────────────

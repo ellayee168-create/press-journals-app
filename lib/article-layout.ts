@@ -65,6 +65,15 @@ export function buildArticleLayout(sections: ParsedSections, figures: Figure[]):
   return { sections: rendered, trailingFigures, allFiguresIfRaw: [] };
 }
 
+// Strip a leading "Figure N:" / "Fig. 3a." / "Figure 2 –" that authors often type
+// into the caption itself, so outputs don't double it against the app's own
+// "Figure N:" label. Shared by the PDF template and DOCX generator.
+export function cleanCaption(caption: string): string {
+  return (caption || '')
+    .replace(/^\s*fig(?:ure|s?\.?)?\s*\d+\s*[a-z]?\s*[:.)\-–—]\s*/i, '')
+    .trim();
+}
+
 // Acknowledgments are optional and frequently left as a placeholder ("[ ]", "N/A",
 // "TODO", empty brackets). Treat those as absent so no empty/weird section renders.
 export function meaningfulAcknowledgments(text?: string): string | undefined {

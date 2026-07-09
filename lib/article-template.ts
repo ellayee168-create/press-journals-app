@@ -1,6 +1,6 @@
 import { Figure, ParsedSections, CoAuthor } from './db';
 import { getJournalConfig } from './journals';
-import { buildArticleLayout, meaningfulAcknowledgments } from './article-layout';
+import { buildArticleLayout, meaningfulAcknowledgments, cleanCaption } from './article-layout';
 import fs from 'fs';
 import path from 'path';
 
@@ -68,7 +68,7 @@ function makeFigure(fig: Figure, id: string, embed: boolean): string {
   const src = embed ? figureToBase64(fig.path) : `/api/figure/${id}/${fig.number}`;
   if (!src) return '';
   return `<div class="fig">
-  <p class="fig-caption"><strong>Figure ${fig.number}:</strong> ${esc(fig.caption)}</p>
+  <p class="fig-caption"><strong>Figure ${fig.number}:</strong> ${esc(cleanCaption(fig.caption))}</p>
   <img src="${src}" alt="Figure ${fig.number}">
 </div>`;
 }
