@@ -325,11 +325,16 @@ function Step3({ file, onChange, onDetected }: {
         The app extracts your text and detects section headings automatically.
       </p>
       <div className="bg-[#f0fafd] border border-[#c8e8f5] rounded-lg p-3 text-xs text-gray-600 space-y-1">
-        <p className="font-semibold text-[#1B3A5C]">How to format your headings so they&rsquo;re detected correctly:</p>
-        <p>• Put each <strong>main section heading in <span className="underline">bold</span></strong> on its own line (e.g. <em>Introduction</em>, <em>Discussion</em>).</p>
-        <p>• Put each <strong>subheading in <span className="italic">italics</span></strong> on its own line.</p>
-        <p>• Keep headings short — a full sentence (or a line ending in a period) is read as body text, not a heading.</p>
-        <p>• Tables are detected and kept. Avoid bolding or italicizing whole citation lines, or they may be mistaken for headings.</p>
+        <p className="font-semibold text-[#1B3A5C]">Format your manuscript so it&rsquo;s read correctly:</p>
+        <p>• <strong>Main section headings</strong> → make them <span className="font-bold">bold</span>, on their own line, and short (no ending period).</p>
+        <p>• <strong>Subheadings</strong> → make them <span className="italic">italic</span>, on their own line.</p>
+        <p>• Make <strong>tables</strong> with Word&rsquo;s Insert → Table (not tabs/spaces). Don&rsquo;t bold or italicize whole sentences or citations.</p>
+        <p className="pt-1">
+          <a href="/formatting" target="_blank" className="text-[#2BA4C8] font-semibold hover:underline">
+            Read the full formatting guide →
+          </a>
+          {' '}(explains exactly how and why each rule works)
+        </p>
       </div>
       <div
         className="border-2 border-dashed border-[#2BA4C8] rounded-xl p-8 text-center cursor-pointer hover:bg-[#f0fafd] transition"
@@ -379,9 +384,11 @@ function Step3({ file, onChange, onDetected }: {
           {preview.warnings.map((w, i) => (
             <div key={i} className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">⚠ {w}</div>
           ))}
-          {preview.warnings.length === 0 && (
-            <p className="text-xs text-green-600 font-medium">✓ Looks good! If anything above seems wrong, adjust your document&rsquo;s headings and re-upload.</p>
-          )}
+          <p className="text-xs text-gray-600">
+            <span className="font-semibold">Check this list.</span> A heading missing? Make it bold (or italic for a subheading) and short.
+            Something here that isn&rsquo;t a heading? Make sure it isn&rsquo;t fully bold/italic. Then re-upload.
+            {' '}<a href="/formatting" target="_blank" className="text-[#2BA4C8] font-semibold hover:underline">Formatting guide →</a>
+          </p>
         </div>
       )}
 
