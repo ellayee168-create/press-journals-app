@@ -4,9 +4,9 @@
 # `chromium` package — the distro build crashes (SIGILL) on ARM cloud VMs.
 FROM node:20-bookworm-slim
 
-# Build tools for native modules
+# Build tools for native modules + poppler-utils (pdftoppm) for rasterizing PDF figures
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 make g++ ca-certificates \
+    python3 make g++ ca-certificates poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

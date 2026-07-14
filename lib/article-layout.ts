@@ -14,6 +14,7 @@ export interface RenderedSection {
   heading: string;
   subsections: RenderedSubsection[];
   figures: Figure[];
+  tables?: string[];
 }
 
 export interface ArticleLayout {
@@ -33,7 +34,7 @@ function orderedSections(sections: ParsedSections): RenderedSection[] {
     list.push({ heading: 'Introduction', subsections: [{ text: sections.introduction }], figures: [] });
   }
   for (const s of sections.body) {
-    list.push({ heading: s.heading, subsections: s.subsections, figures: [] });
+    list.push({ heading: s.heading, subsections: s.subsections, figures: [], tables: s.tables });
   }
   if (sections.conclusion) {
     list.push({ heading: 'Conclusion', subsections: [{ text: sections.conclusion }], figures: [] });

@@ -146,23 +146,17 @@ export default function AdminSubmissionPage() {
   }, [id, router]);
 
   async function updateStatus(status: string) {
-    let note: string | undefined;
-    let notify = false;
-    if (status === 'accepted' || status === 'rejected') {
-      if (!confirm(`Mark this submission as ${status}?`)) {
-        setSub(prev => (prev ? { ...prev } : prev)); // re-render so the select snaps back
-        return;
-      }
-      const noteInput = prompt(
-        `The student will be emailed about this decision.\n\nOptional note to include (leave blank for none).\nPress Cancel to change status WITHOUT emailing the student.`
-      );
-      notify = noteInput !== null;
-      note = noteInput || undefined;
+    if (
+      (status === 'accepted' || status === 'rejected') &&
+      !confirm(`Mark this submission as ${status}?`)
+    ) {
+      setSub(prev => (prev ? { ...prev } : prev)); // re-render so the select snaps back
+      return;
     }
     const res = await fetch('/api/admin/status', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, status, note, notify }),
+      body: JSON.stringify({ id, status }),
     });
     if (handleExpired(res)) return;
     setSub(prev => prev ? { ...prev, status: status as Submission['status'] } : prev);
@@ -308,12 +302,6 @@ export default function AdminSubmissionPage() {
               className="px-4 py-2 border border-[#2BA4C8] text-[#2BA4C8] rounded-lg text-sm font-semibold hover:bg-[#f0fafd]"
             >
               Download PDF
-            </a>
-            <a
-              href={`/api/admin/download-docx/${sub.id}`}
-              className="px-4 py-2 border border-gray-400 text-gray-600 rounded-lg text-sm font-semibold hover:bg-gray-50"
-            >
-              ⬇ Download Word (editable)
             </a>
             <select
               value={sub.status}

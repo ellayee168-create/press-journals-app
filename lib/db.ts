@@ -100,6 +100,7 @@ export interface Figure {
 export interface Section {
   heading: string;
   subsections: { subheading?: string; text: string }[];
+  tables?: string[]; // clean HTML <table> strings extracted from the manuscript
 }
 
 export interface ParsedSections {
@@ -108,6 +109,7 @@ export interface ParsedSections {
   conclusion?: string;
   acknowledgments?: string;
   references?: string;
+  tables?: string[]; // supplementary tables not tied to a body section
   raw?: string;
 }
 

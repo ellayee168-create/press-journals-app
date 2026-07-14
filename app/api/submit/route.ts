@@ -5,11 +5,31 @@ import path from 'path';
 import { getDb, Figure } from '@/lib/db';
 import { extractText } from '@/lib/extract';
 import { parseSections, parseSectionsFromDocx, applyFigureSectionMatches } from '@/lib/parse-sections';
-import { sendStudentConfirmation, sendGuardianNotification } from '@/lib/email';
+import { sendProofReadyNotification } from '@/lib/email';
 import { extractFiguresFromDocx, extractFiguresFromPdf } from '@/lib/extract-figures';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+// Rasterize the first page of a PDF figure to a PNG buffer using poppler's
+// pdftoppm (installed in the Docker image). Falls back by throwing so the caller
+// keeps the original file if conversion isn't possible.
+async function rasterizePdfFirstPage(pdfBuf: Buffer, workDir: string): Promise<Buffer> {
+  const { execFile } = await import('child_process');
+  const { promisify } = await import('util');
+  const run = promisify(execFile);
+  const inPath = path.join(workDir, `._figpdf_${Date.now()}.pdf`);
+  const outBase = path.join(workDir, `._figpng_${Date.now()}`);
+  fs.writeFileSync(inPath, pdfBuf);
+  try {
+    // -singlefile → first page only, written to <outBase>.png at 150 DPI.
+    await run('pdftoppm', ['-png', '-r', '150', '-singlefile', inPath, outBase]);
+    return fs.readFileSync(`${outBase}.png`);
+  } finally {
+    fs.rmSync(inPath, { force: true });
+    fs.rmSync(`${outBase}.png`, { force: true });
+  }
+}
 
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25 MB per file
 
@@ -88,8 +108,17 @@ export async function POST(req: NextRequest) {
         if (!fig || fig.size === 0) continue;
         let ext = (path.extname(fig.name) || '.png').toLowerCase();
         let buf: Buffer = Buffer.from(await fig.arrayBuffer());
-        // TIFF can't render in browsers, Chromium/PDF, or the DOCX generator —
-        // convert to PNG on upload so figures display everywhere downstream.
+        // A PDF figure is rasterized to PNG (first page) so it displays in the
+        // browser and the rendered PDF/preview.
+        if (ext === '.pdf') {
+          try {
+            buf = await rasterizePdfFirstPage(buf, uploadDir);
+            ext = '.png';
+          } catch (e) {
+            console.error('PDF figure rasterization failed:', e);
+          }
+        }
+        // TIFF can't render in browsers or Chromium — convert to PNG on upload.
         if (ext === '.tif' || ext === '.tiff') {
           try {
             const sharp = (await import('sharp')).default;
@@ -173,8 +202,8 @@ export async function POST(req: NextRequest) {
       articleType,
     );
 
-    sendStudentConfirmation(get('email'), get('firstName'), id).catch(console.error);
-    sendGuardianNotification(get('guardianEmail'), `${get('firstName')} ${get('lastName')}`, id).catch(console.error);
+    // Notify the editorial inbox that a new proof is ready. No student emails.
+    sendProofReadyNotification(get('title'), `${get('firstName')} ${get('lastName')}`, id).catch(console.error);
 
     return NextResponse.json({ id });
   } catch (err) {

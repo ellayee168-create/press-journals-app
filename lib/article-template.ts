@@ -121,6 +121,8 @@ export function buildArticleHtml(data: ArticleData, embed = false): string {
         if (sub.subheading) bodyHtml += `<h3>${esc(sub.subheading)}</h3>\n`;
         bodyHtml += toParagraphs(sub.text) + '\n';
       }
+      // Tables are pre-sanitized clean HTML (cells escaped in the parser).
+      if (section.tables?.length) bodyHtml += section.tables.map(t => `<div class="table-wrap">${t}</div>`).join('\n');
       bodyHtml += '<div class="clearfix"></div>';
     }
     // Figures whose target section doesn't exist go at the end (never dropped).
@@ -132,6 +134,11 @@ export function buildArticleHtml(data: ArticleData, embed = false): string {
   const ackText = meaningfulAcknowledgments(data.acknowledgments || data.sections.acknowledgments);
   const ackHtml = ackText
     ? `<h2>Acknowledgements</h2>\n<p class="no-indent">${esc(ackText)}</p>`
+    : '';
+
+  // Supplementary tables (e.g. placed after References in the manuscript).
+  const supplTablesHtml = data.sections.tables?.length
+    ? `<div class="clearfix"></div><h2>Tables</h2>\n${data.sections.tables.map(t => `<div class="table-wrap">${t}</div>`).join('\n')}`
     : '';
 
   const refText = data.referencesRaw || data.sections.references || '';
@@ -342,6 +349,27 @@ p.no-indent { text-indent: 0; }
   display: block;
 }
 
+/* ── Tables ──────────────────────────────────── */
+.table-wrap {
+  clear: both;
+  margin: 8pt 0 12pt;
+  overflow-x: auto;
+}
+table.doc-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 8.5pt;
+  line-height: 1.3;
+}
+table.doc-table th, table.doc-table td {
+  border: 0.5pt solid #bbb;
+  padding: 3pt 5pt;
+  text-align: left;
+  vertical-align: top;
+}
+table.doc-table th { background: #f0f0f0; font-weight: bold; }
+table.doc-table tr:first-child td { background: #f0f0f0; font-weight: bold; }
+
 /* ── References ──────────────────────────────── */
 .refs-block {
   margin-top: 14pt;
@@ -416,6 +444,7 @@ p.no-indent { text-indent: 0; }
   <!-- ── Body (single-column flow + right-floated figures) ── -->
   <div class="body-content">
     ${bodyHtml}
+    ${supplTablesHtml}
     ${ackHtml}
     ${refHtml}
   </div>

@@ -96,23 +96,17 @@ function SubmissionsTab() {
 
   async function updateStatus(id: string, status: string) {
     const sub = submissions.find(s => s.id === id);
-    let note: string | undefined;
-    let notify = false;
-    if (status === 'accepted' || status === 'rejected') {
-      if (!confirm(`Mark "${sub?.title ?? 'this submission'}" as ${status}?`)) {
-        setSubmissions(prev => [...prev]); // re-render so the select snaps back
-        return;
-      }
-      const noteInput = prompt(
-        `The student will be emailed about this decision.\n\nOptional note to include (leave blank for none).\nPress Cancel to change status WITHOUT emailing the student.`
-      );
-      notify = noteInput !== null;
-      note = noteInput || undefined;
+    if (
+      (status === 'accepted' || status === 'rejected') &&
+      !confirm(`Mark "${sub?.title ?? 'this submission'}" as ${status}?`)
+    ) {
+      setSubmissions(prev => [...prev]); // re-render so the select snaps back
+      return;
     }
     await fetch('/api/admin/status', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, status, note, notify }),
+      body: JSON.stringify({ id, status }),
     });
     setSubmissions(prev =>
       prev.map(s => s.id === id ? { ...s, status: status as Submission['status'] } : s)

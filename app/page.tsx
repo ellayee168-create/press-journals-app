@@ -4,10 +4,12 @@ import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
 const JOURNALS = [
-  'New Frontiers in Biology, Medicine, and Chemistry',
-  'Advances in Physics, Earth Science, and Engineering',
-  'Perspectives in Mathematics and Computer Science',
-  'Explorations in Environmental and Social Sciences',
+  'Environment, Ecology, & Earth Protections',
+  'Education & Public Health in a Changing World',
+  'Investigations of History & Society',
+  'Journal of Novel Mathematical Advances',
+  'New Frontiers in Biology, Medicine, & Chemistry',
+  'Nanotechnology & Physical Sciences Quarterly',
 ];
 
 const ARTICLE_TYPES = ['Research Article', 'Review Article'];
@@ -217,12 +219,12 @@ function Step2({ data, onChange }: { data: ArticleMeta; onChange: (d: ArticleMet
       </div>
 
       <div>
-        <Label>Abstract * (150–250 words)</Label>
+        <Label>Abstract * (at least 100 words)</Label>
         <Textarea required rows={6} value={data.abstract}
           onChange={e => onChange({ ...data, abstract: e.target.value })}
           placeholder="A brief summary of the topics covered, the scope of the review, and the main conclusions…" />
-        <p className={`text-xs mt-1 ${wordCount < 150 || wordCount > 250 ? 'text-amber-600' : 'text-green-600'}`}>
-          {wordCount} words{wordCount < 150 ? ' (minimum 150)' : wordCount > 250 ? ' (maximum 250)' : ' ✓'}
+        <p className={`text-xs mt-1 ${wordCount < 100 ? 'text-amber-600' : 'text-green-600'}`}>
+          {wordCount} words{wordCount < 100 ? ' (minimum 100)' : ' ✓'}
         </p>
       </div>
 
@@ -284,7 +286,11 @@ interface ParsePreview {
   warnings: string[];
 }
 
-function Step3({ file, onChange }: { file: File | null; onChange: (f: File | null) => void }) {
+function Step3({ file, onChange, onDetected }: {
+  file: File | null;
+  onChange: (f: File | null) => void;
+  onDetected: (headings: string[]) => void;
+}) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [checking, setChecking] = useState(false);
   const [preview, setPreview] = useState<ParsePreview | null>(null);
@@ -294,6 +300,7 @@ function Step3({ file, onChange }: { file: File | null; onChange: (f: File | nul
     onChange(f);
     setPreview(null);
     setCheckError('');
+    onDetected([]);
     if (!f) return;
     // Dry-run parse so the student sees what was detected BEFORE submitting.
     setChecking(true);
@@ -303,7 +310,7 @@ function Step3({ file, onChange }: { file: File | null; onChange: (f: File | nul
       const res = await fetch('/api/parse-preview', { method: 'POST', body: fd });
       const data = await res.json();
       if (!res.ok) setCheckError(data.error || 'Could not read this file.');
-      else setPreview(data);
+      else { setPreview(data); onDetected(data.headings || []); }
     } catch {
       setCheckError('Could not check the file — you can still submit, but please verify the preview afterwards.');
     } finally {
@@ -314,9 +321,16 @@ function Step3({ file, onChange }: { file: File | null; onChange: (f: File | nul
   return (
     <div className="space-y-4">
       <p className="text-sm text-gray-600">
-        Upload your manuscript as a <strong>PDF</strong> or <strong>Word (.docx)</strong> file.
-        The app will extract your text and detect sections automatically — Word documents work best.
+        Upload your manuscript as a <strong>Word (.docx)</strong> file (recommended) or PDF.
+        The app extracts your text and detects section headings automatically.
       </p>
+      <div className="bg-[#f0fafd] border border-[#c8e8f5] rounded-lg p-3 text-xs text-gray-600 space-y-1">
+        <p className="font-semibold text-[#1B3A5C]">How to format your headings so they&rsquo;re detected correctly:</p>
+        <p>• Put each <strong>main section heading in <span className="underline">bold</span></strong> on its own line (e.g. <em>Introduction</em>, <em>Discussion</em>).</p>
+        <p>• Put each <strong>subheading in <span className="italic">italics</span></strong> on its own line.</p>
+        <p>• Keep headings short — a full sentence (or a line ending in a period) is read as body text, not a heading.</p>
+        <p>• Tables are detected and kept. Avoid bolding or italicizing whole citation lines, or they may be mistaken for headings.</p>
+      </div>
       <div
         className="border-2 border-dashed border-[#2BA4C8] rounded-xl p-8 text-center cursor-pointer hover:bg-[#f0fafd] transition"
         onClick={() => inputRef.current?.click()}
@@ -393,7 +407,11 @@ interface FigureState {
   docSectionNames: string;  // one section name per line (matches figure order)
 }
 
-function Step4({ state, onChange }: { state: FigureState; onChange: (s: FigureState) => void }) {
+function Step4({ state, onChange, detectedHeadings }: {
+  state: FigureState;
+  onChange: (s: FigureState) => void;
+  detectedHeadings: string[];
+}) {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
 
@@ -478,7 +496,7 @@ function Step4({ state, onChange }: { state: FigureState; onChange: (s: FigureSt
             <p className="text-sm text-gray-600">Click or drag images here</p>
             <p className="text-xs text-gray-400">PNG, JPG, TIFF · up to 13 figures</p>
             <input ref={imageInputRef} type="file" multiple
-              accept=".png,.jpg,.jpeg,.tif,.tiff,image/*" className="hidden"
+              accept=".png,.jpg,.jpeg,.tif,.tiff,.gif,.webp,.pdf,image/*,application/pdf" className="hidden"
               onChange={e => addImages(e.target.files)} />
           </div>
 
@@ -501,10 +519,19 @@ function Step4({ state, onChange }: { state: FigureState; onChange: (s: FigureSt
                       onChange={e => updateCaption(i, e.target.value)}
                       placeholder="Figure caption…"
                       className="w-full border border-gray-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[#2BA4C8] bg-white mb-1" />
-                    <input type="text" value={fig.sectionName}
-                      onChange={e => updateSectionName(i, e.target.value)}
-                      placeholder="Which section? (e.g. Introduction, Cancer Biology)"
-                      className="w-full border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[#2BA4C8] bg-gray-50 text-gray-600 placeholder-gray-400" />
+                    {detectedHeadings.length > 0 ? (
+                      <select value={fig.sectionName}
+                        onChange={e => updateSectionName(i, e.target.value)}
+                        className="w-full border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[#2BA4C8] bg-gray-50 text-gray-600">
+                        <option value="">Which section? (optional)</option>
+                        {detectedHeadings.map((h, hi) => <option key={hi} value={h}>{h}</option>)}
+                      </select>
+                    ) : (
+                      <input type="text" value={fig.sectionName}
+                        onChange={e => updateSectionName(i, e.target.value)}
+                        placeholder="Which section? (upload your manuscript first to pick from a list)"
+                        className="w-full border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[#2BA4C8] bg-gray-50 text-gray-600 placeholder-gray-400" />
+                    )}
                   </div>
                 </div>
               ))}
@@ -571,6 +598,11 @@ function Step4({ state, onChange }: { state: FigureState; onChange: (s: FigureSt
             <p className="text-xs text-gray-400 mt-1">
               Type the section name where each figure should appear — line 1 for Figure 1, line 2 for Figure 2, etc. Leave a line blank to use automatic placement.
             </p>
+            {detectedHeadings.length > 0 && (
+              <p className="text-xs text-gray-500 mt-1">
+                <span className="font-semibold">Detected sections</span> (copy these exactly): {detectedHeadings.join(' · ')}
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -657,6 +689,9 @@ export default function SubmitPage() {
   });
 
   const [manuscript, setManuscript] = useState<File | null>(null);
+  // Section headings detected from the manuscript — used to populate the
+  // per-figure "which section" dropdown so students pick, not type.
+  const [detectedHeadings, setDetectedHeadings] = useState<string[]>([]);
 
   const [figState, setFigState] = useState<FigureState>({
     mode: 'images', images: [], docFile: null, docCaptions: '', docSectionNames: '',
@@ -704,7 +739,7 @@ export default function SubmitPage() {
       if (meta.title.trim().split(/\s+/).length > 15) return 'Title must be 15 words or fewer.';
       if (!meta.abstract) return 'Abstract is required.';
       const aw = meta.abstract.trim().split(/\s+/).length;
-      if (aw < 150 || aw > 250) return `Abstract must be 150–250 words (currently ${aw}).`;
+      if (aw < 100) return `Abstract must be at least 100 words (currently ${aw}).`;
       if (meta.keywords.length < 5) return 'Please add at least 5 keywords.';
       if (!meta.journal) return 'Please select a journal.';
       if (!meta.coi) return 'Conflict of Interest statement is required.';
@@ -769,8 +804,8 @@ export default function SubmitPage() {
   const stepContent = [
     <Step1 key={0} data={author} onChange={setAuthor} />,
     <Step2 key={1} data={meta} onChange={setMeta} />,
-    <Step3 key={2} file={manuscript} onChange={setManuscript} />,
-    <Step4 key={3} state={figState} onChange={setFigState} />,
+    <Step3 key={2} file={manuscript} onChange={setManuscript} onDetected={setDetectedHeadings} />,
+    <Step4 key={3} state={figState} onChange={setFigState} detectedHeadings={detectedHeadings} />,
     <Step5 key={4} author={author} meta={meta} manuscript={manuscript} figState={figState} />,
   ];
 

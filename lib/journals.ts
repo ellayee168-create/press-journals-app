@@ -6,27 +6,38 @@ export interface JournalConfig {
   dark: string;
 }
 
-// Update colors here once the editors provide the official hex codes.
+// Each journal has a themed accent (used for the title, headings, and footer bar)
+// and a darker shade (issue box + wordmark). Editors can refine these exact hexes.
 export const JOURNALS: JournalConfig[] = [
   {
-    name: 'New Frontiers in Biology, Medicine, and Chemistry',
-    color: '#2BA4C8',
+    name: 'Environment, Ecology, & Earth Protections',
+    color: '#2E7D32', // green
+    dark: '#1B5E20',
+  },
+  {
+    name: 'Education & Public Health in a Changing World',
+    color: '#7B3FA0', // purple
+    dark: '#4A148C',
+  },
+  {
+    name: 'Investigations of History & Society',
+    color: '#8C2332', // maroon
+    dark: '#5A1520',
+  },
+  {
+    name: 'Journal of Novel Mathematical Advances',
+    color: '#7A5230', // brown
+    dark: '#4E3620',
+  },
+  {
+    name: 'New Frontiers in Biology, Medicine, & Chemistry',
+    color: '#2BA4C8', // blue
     dark: '#1B3A5C',
   },
   {
-    name: 'Advances in Physics, Earth Science, and Engineering',
-    color: '#2BA4C8',
-    dark: '#1B3A5C',
-  },
-  {
-    name: 'Perspectives in Mathematics and Computer Science',
-    color: '#2BA4C8',
-    dark: '#1B3A5C',
-  },
-  {
-    name: 'Explorations in Environmental and Social Sciences',
-    color: '#2BA4C8',
-    dark: '#1B3A5C',
+    name: 'Nanotechnology & Physical Sciences Quarterly',
+    color: '#4A5568', // dark gray
+    dark: '#2D3748',
   },
 ];
 

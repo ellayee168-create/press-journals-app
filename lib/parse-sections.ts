@@ -105,105 +105,175 @@ function htmlToText(inner: string): string {
     .trim();
 }
 
-function isLikelyHeading(rawInner: string, text: string): boolean {
-  const textNoColon = text.endsWith(':') ? text.slice(0, -1).trim() : text;
-
-  // A recognised section name is always a heading, whatever its formatting
-  // (covers plain-text and numbered headings like "3. Methods").
-  if (isKnownSectionName(textNoColon)) return true;
-
-  if (textNoColon.endsWith('.') || textNoColon.length > 120) return false;
-  const innerT = rawInner.trim();
-
-  // Fully bold or fully italic short line → heading.
-  if (/^<strong[^>]*>[\s\S]*<\/strong>$/i.test(innerT)) return true;
-  if (/^<em[^>]*>[\s\S]*<\/em>$/i.test(innerT)) return true;
-
-  const words = textNoColon.split(/\s+/);
-  // Numbered heading: "1 Title", "2.1 Title", "IV. Title" — short, title-ish.
-  if (/^(\d+(\.\d+)*|[IVXLC]{1,4})[.)]?\s+[A-Z]/.test(textNoColon) && words.length <= 12) return true;
-  // ALL-CAPS short standalone line → heading.
-  if (textNoColon === textNoColon.toUpperCase() && /[A-Z]/.test(textNoColon) && words.length <= 10) return true;
-
+// A fully-italic line is often a real subheading — but authors also italicise
+// inline citations ("(Janssen Research & Development, LLC, 2025)"), which must
+// NOT be mistaken for headings.
+function looksLikeCitation(text: string): boolean {
+  const t = text.trim();
+  if (t.startsWith('(') && t.endsWith(')')) return true;      // wrapped parenthetical
+  if (/\(\d{4}\)/.test(t)) return true;                        // "(2023)"
+  if (/,\s*\d{4}\)?\s*$/.test(t)) return true;                 // "…, 2025)" / "…, 2025"
+  if (/\bet al\.?/i.test(t)) return true;                      // "Smith et al."
   return false;
 }
 
+// Classify a block's heading level from its formatting.
+//   1 = main section heading (bold, <h1>/<h2>, or a known section name)
+//   2 = subheading (italic, or <h3>)
+//   0 = not a heading (ordinary body text)
+// Numbered / ALL-CAPS auto-detection was intentionally removed: it produced many
+// false positives on numbered lists and table-cell abbreviations. Detection now
+// keys off explicit bold/italic formatting, which authors use reliably, plus the
+// known section-name list. Editors can re-classify anything in "Edit sections".
+function headingLevel(rawInner: string, tag: string, text: string): 0 | 1 | 2 {
+  const textNoColon = text.endsWith(':') ? text.slice(0, -1).trim() : text;
+
+  if (tag === 'h1' || tag === 'h2') return 1;
+  if (tag === 'h3') return 2;
+
+  // A recognised section name is always a main heading, whatever its formatting.
+  if (isKnownSectionName(textNoColon)) return 1;
+
+  // Headings are short; a long line or one ending like a sentence is body text.
+  if (textNoColon.length > 120 || textNoColon.endsWith('.')) return 0;
+
+  const innerT = rawInner.trim();
+  const fullyBold = /^<strong[^>]*>[\s\S]*<\/strong>$/i.test(innerT);
+  const fullyItalic = /^<em[^>]*>[\s\S]*<\/em>$/i.test(innerT);
+
+  if (fullyBold && !looksLikeCitation(textNoColon)) return 1;
+  if (fullyItalic && !looksLikeCitation(textNoColon)) return 2;
+
+  return 0;
+}
+
+// Pull <table> blocks out of the HTML so their cell paragraphs don't leak into
+// the section stream as fake headings. Each table is replaced with a sentinel
+// paragraph (@@TABLEk@@) that preserves its position, and returned as clean HTML.
+function extractTables(html: string): { html: string; tables: string[] } {
+  const tables: string[] = [];
+  const cleaned = html.replace(/<table[\s\S]*?<\/table>/gi, (tbl) => {
+    const rows: string[] = [];
+    const rowRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+    let rm: RegExpExecArray | null;
+    while ((rm = rowRe.exec(tbl)) !== null) {
+      const cells: string[] = [];
+      const cellRe = /<(t[dh])[^>]*>([\s\S]*?)<\/\1>/gi;
+      let cm: RegExpExecArray | null;
+      while ((cm = cellRe.exec(rm[1])) !== null) {
+        const isHeader = cm[1].toLowerCase() === 'th';
+        const cellText = htmlToText(cm[2])
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        cells.push(isHeader ? `<th>${cellText}</th>` : `<td>${cellText}</td>`);
+      }
+      if (cells.length) rows.push(`<tr>${cells.join('')}</tr>`);
+    }
+    if (rows.length === 0) return '';
+    const k = tables.length;
+    tables.push(`<table class="doc-table">${rows.join('')}</table>`);
+    return `<p>@@TABLE${k}@@</p>`;
+  });
+  return { html: cleaned, tables };
+}
+
 function parseSectionsFromHtml(html: string): ParsedSections {
-  type Seg = { isHeading: boolean; text: string };
+  // level: 0 = body text, 1 = main heading, 2 = subheading; table segments carry html.
+  type Seg = { level: 0 | 1 | 2; text: string; table?: string };
   const segments: Seg[] = [];
 
+  const { html: noTableHtml, tables } = extractTables(html);
+
   // Walk top-level block elements in document order.
-  // ol/ul are expanded into numbered/bulleted li items.
   const blockRe = /<(h[1-3]|p|ol|ul)[^>]*>([\s\S]*?)<\/\1>/gi;
   let m: RegExpExecArray | null;
-  // Counter persists across consecutive <ol> blocks but resets at each heading,
-  // so each section's numbered list starts from 1.
-  let olCounter = 1;
+  let olCounter = 1; // persists across consecutive <ol> blocks, resets at each heading
 
-  while ((m = blockRe.exec(html)) !== null) {
+  while ((m = blockRe.exec(noTableHtml)) !== null) {
     const tag = m[1].toLowerCase();
     const innerHtml = m[2];
 
     if (tag === 'ol' || tag === 'ul') {
       const isOrdered = tag === 'ol';
-      if (!isOrdered) olCounter = 1; // bullet lists don't share counter
+      if (!isOrdered) olCounter = 1;
       const liRe = /<li[^>]*>([\s\S]*?)<\/li>/gi;
       let liM: RegExpExecArray | null;
       while ((liM = liRe.exec(innerHtml)) !== null) {
         const text = htmlToText(liM[1]);
-        if (text && text.replace(/[^a-z0-9]/gi, '').length >= 3) { // skip stray punctuation
-          segments.push({ isHeading: false, text: isOrdered ? `${olCounter++}. ${text}` : `• ${text}` });
+        if (text && text.replace(/[^a-z0-9]/gi, '').length >= 3) {
+          segments.push({ level: 0, text: isOrdered ? `${olCounter++}. ${text}` : `• ${text}` });
         }
       }
     } else {
-      // Paragraph or explicit heading
       const text = htmlToText(innerHtml);
-      // Skip near-empty segments (stray periods, etc.)
+      // Table sentinel → emit the preserved clean-HTML table.
+      const tableMatch = text.match(/^@@TABLE(\d+)@@$/);
+      if (tableMatch) {
+        segments.push({ level: 0, text: '', table: tables[Number(tableMatch[1])] });
+        continue;
+      }
       if (!text || text.replace(/[^a-z0-9]/gi, '').length < 3) continue;
       const textNoColon = text.endsWith(':') ? text.slice(0, -1).trim() : text;
-      const isExplicitHeading = tag.startsWith('h');
-      const isStyleHeading = tag === 'p' && isLikelyHeading(innerHtml, text);
-      const isHeading = isExplicitHeading || isStyleHeading;
-      if (isHeading) olCounter = 1; // reset numbering at each new section
-      segments.push({ isHeading, text: isHeading ? textNoColon : text });
+      const level = headingLevel(innerHtml, tag, text);
+      if (level > 0) olCounter = 1;
+      segments.push({ level, text: level > 0 ? textNoColon : text });
     }
   }
 
   if (segments.length === 0) return { body: [], raw: '' };
 
-  // Merge a bare URL paragraph that immediately follows a list-item paragraph
-  // (common pattern: <ol><li>Author, Title, Journal, date,</li></ol><p>www.url.com</p>)
+  // Merge a bare URL paragraph that immediately follows a body paragraph
+  // (reference pattern: <ol><li>Author, Title, date,</li></ol><p>www.url.com</p>)
   const merged: Seg[] = [];
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i];
     const next = i + 1 < segments.length ? segments[i + 1] : null;
-    if (
-      !seg.isHeading && next && !next.isHeading &&
-      /^(https?:\/\/|www\.)/i.test(next.text)
-    ) {
-      merged.push({ isHeading: false, text: seg.text + ' ' + next.text });
-      i++; // consume the URL segment
+    if (seg.level === 0 && !seg.table && next && next.level === 0 && !next.table &&
+        /^(https?:\/\/|www\.)/i.test(next.text)) {
+      merged.push({ level: 0, text: seg.text + ' ' + next.text });
+      i++;
     } else {
       merged.push(seg);
     }
   }
 
-  // Group into blocks by heading
-  interface Block { heading: string; paragraphs: string[] }
-  const blocks: Block[] = [];
-  let cur: Block = { heading: '', paragraphs: [] };
+  return buildResult(mergedSegmentsToBlocks(merged));
+}
 
-  for (const seg of merged) {
-    if (seg.isHeading) {
-      if (cur.heading || cur.paragraphs.length > 0) blocks.push(cur);
-      cur = { heading: seg.text, paragraphs: [] };
+// Group leveled segments into section blocks. A level-1 heading opens a new
+// section; a level-2 heading opens a new subsection within it; body text and
+// tables attach to the current subsection / section.
+interface RawSubsection { subheading?: string; text: string }
+interface RawBlock { heading: string; subsections: RawSubsection[]; tables: string[] }
+
+function mergedSegmentsToBlocks(
+  segs: Array<{ level: 0 | 1 | 2; text: string; table?: string }>,
+): RawBlock[] {
+  const blocks: RawBlock[] = [];
+  let cur: RawBlock = { heading: '', subsections: [], tables: [] };
+  let curSub: RawSubsection | null = null;
+
+  const ensureSub = () => {
+    if (!curSub) { curSub = { text: '' }; cur.subsections.push(curSub); }
+    return curSub;
+  };
+
+  for (const seg of segs) {
+    if (seg.level === 1) {
+      if (cur.heading || cur.subsections.length || cur.tables.length) blocks.push(cur);
+      cur = { heading: seg.text, subsections: [], tables: [] };
+      curSub = null;
+    } else if (seg.level === 2) {
+      curSub = { subheading: seg.text, text: '' };
+      cur.subsections.push(curSub);
+    } else if (seg.table) {
+      cur.tables.push(seg.table);
     } else {
-      cur.paragraphs.push(seg.text);
+      const sub = ensureSub();
+      sub.text = sub.text ? `${sub.text}\n\n${seg.text}` : seg.text;
     }
   }
-  if (cur.heading || cur.paragraphs.length > 0) blocks.push(cur);
-
-  return buildResult(blocks);
+  if (cur.heading || cur.subsections.length || cur.tables.length) blocks.push(cur);
+  return blocks;
 }
 
 // ── PDF / plain-text path ─────────────────────────────────────────────────────
@@ -273,52 +343,62 @@ export function parseSections(rawText: string): ParsedSections {
     return { body: [], raw: rawText };
   }
 
-  return buildResult(blocks);
+  // Adapt the flat {heading, paragraphs} blocks to the shared RawBlock shape.
+  const rawBlocks: RawBlock[] = blocks.map(b => ({
+    heading: b.heading,
+    subsections: [{ text: b.paragraphs.join('\n\n') }],
+    tables: [],
+  }));
+  return buildResult(rawBlocks);
 }
 
 // ── Shared result builder ─────────────────────────────────────────────────────
 
+function blockText(block: RawBlock): string {
+  return block.subsections.map(s => s.text).filter(Boolean).join('\n\n').trim();
+}
+
 // A leading block is title/author front-matter if most of its lines read like
 // author names, affiliations, or correspondence rather than prose.
-function looksLikeAuthorBlock(block: { heading: string; paragraphs: string[] }): boolean {
-  const ps = block.paragraphs;
+function looksLikeAuthorBlock(block: RawBlock): boolean {
+  const ps = blockText(block).split(/\n\n/).filter(Boolean);
   if (ps.length === 0) return false;
   const authorish = ps.filter(p => {
-    if (p.length > 200) return false;                                   // prose is long
-    if (/@/.test(p)) return true;                                        // email
+    if (p.length > 200) return false;
+    if (/@/.test(p)) return true;
     if (/\b(universit|college|school|institute|department|hospital|laborator|academy|center|centre)\b/i.test(p)) return true;
-    if (/correspond/i.test(p)) return true;                             // "*Correspondence:"
+    if (/correspond/i.test(p)) return true;
     if (/^\*/.test(p)) return true;
-    if (p.length < 90 && /[,*\d]/.test(p) && /[A-Za-z]/.test(p)) return true; // "Bei, A.1*" author line
+    if (p.length < 90 && /[,*\d]/.test(p) && /[A-Za-z]/.test(p)) return true;
     return false;
   }).length;
   return authorish >= Math.ceil(ps.length / 2);
 }
 
-function buildResult(blocks: Array<{ heading: string; paragraphs: string[] }>): ParsedSections {
+function buildResult(blocks: RawBlock[]): ParsedSections {
   const result: ParsedSections = { body: [] };
 
   // Drop leading front-matter (title, authors, affiliation, correspondence).
-  // Preferred signal: a recognised article-start marker (Abstract / Keywords /
-  // Introduction / Methods / Results / Discussion). Everything before the first
-  // one is metadata the submission form already collects.
   const firstContentIdx = blocks.findIndex(b => CONTENT_START.has(normalise(b.heading)));
   if (firstContentIdx > 0) {
     blocks = blocks.slice(firstContentIdx);
   } else if (firstContentIdx === -1 && blocks.length > 0 && looksLikeAuthorBlock(blocks[0])) {
-    // Fallback for papers with no recognisable start marker: if the very first
-    // block is a title whose body is author/affiliation/correspondence lines, drop it.
     blocks = blocks.slice(1);
   }
 
+  const orphanTables: string[] = [];
   for (const block of blocks) {
-    const text = block.paragraphs.join('\n\n').trim();
+    const text = blockText(block);
     const kind = classifyHeading(block.heading);
 
-    if (kind === 'skip') continue;
-    if (!block.heading && !text) continue;
+    // Tables in non-body sections (e.g. supplementary tables after References)
+    // are collected separately so they still render instead of being dropped.
+    if (kind !== 'body' && block.tables.length) orphanTables.push(...block.tables);
 
-    // Preamble text (before any heading) goes into intro if we don't have one yet
+    if (kind === 'skip') continue;
+    if (!block.heading && !text && block.tables.length === 0) continue;
+
+    // Preamble text (before any heading) goes into intro if we don't have one yet.
     if (!block.heading) {
       if (!result.introduction && text.length > 50) result.introduction = text;
       continue;
@@ -333,10 +413,16 @@ function buildResult(blocks: Array<{ heading: string; paragraphs: string[] }>): 
     } else if (kind === 'refs') {
       result.references = text;
     } else {
-      result.body.push({ heading: block.heading, subsections: [{ text }] });
+      const subsections = block.subsections.filter(s => s.subheading || s.text.trim());
+      result.body.push({
+        heading: block.heading,
+        subsections: subsections.length ? subsections : [{ text }],
+        ...(block.tables.length ? { tables: block.tables } : {}),
+      });
     }
   }
 
+  if (orphanTables.length) result.tables = orphanTables;
   return result;
 }
 
