@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { parseSections, parseSectionsFromDocx } from '@/lib/parse-sections';
+import { parseSections, parseSectionsFromDocx, getHeadingCandidates } from '@/lib/parse-sections';
 import { extractText } from '@/lib/extract';
 
 export const runtime = 'nodejs';
@@ -46,6 +46,9 @@ export async function POST(req: NextRequest) {
     for (const s of parsed.body) headings.push(s.heading);
     if (parsed.conclusion) headings.push('Conclusion');
 
+    // Ordered heading candidates the student can re-classify (header/subheader/remove).
+    const candidates = getHeadingCandidates(parsed);
+
     const refCount = parsed.references
       ? parsed.references.split(/\n{2,}/).filter(Boolean).length
       : 0;
@@ -72,7 +75,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({ headings, refCount, totalChars, warnings });
+    return NextResponse.json({ headings, candidates, refCount, totalChars, warnings });
   } catch (err) {
     console.error('Parse preview failed:', err);
     return NextResponse.json(

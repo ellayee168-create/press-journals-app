@@ -23,6 +23,7 @@ function initSchema(db: Database.Database) {
   const migrations = [
     `ALTER TABLE submissions ADD COLUMN co_authors TEXT NOT NULL DEFAULT '[]'`,
     `ALTER TABLE submissions ADD COLUMN article_type TEXT NOT NULL DEFAULT 'Research Article'`,
+    `ALTER TABLE submissions ADD COLUMN section_overrides TEXT NOT NULL DEFAULT '{}'`,
   ];
   for (const sql of migrations) {
     try { db.exec(sql); } catch { /* column already exists */ }
@@ -135,6 +136,7 @@ export interface Submission {
   figures: string;
   co_authors: string;    // JSON: Array<{ firstName, lastName, affiliation }>
   article_type: string;
+  section_overrides: string; // JSON: { [normalizedHeading]: 'header'|'subheader'|'none' }
 }
 
 export interface CoAuthor {

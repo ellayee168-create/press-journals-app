@@ -279,28 +279,48 @@ function Step2({ data, onChange }: { data: ArticleMeta; onChange: (d: ArticleMet
 }
 
 // ── Step 3: Upload Manuscript ────────────────────────────────────────────────
+type HeadingChoice = 'header' | 'subheader' | 'none';
+interface HeadingCandidate { text: string; level: 'header' | 'subheader' }
 interface ParsePreview {
   headings: string[];
+  candidates: HeadingCandidate[];
   refCount: number;
   totalChars: number;
   warnings: string[];
 }
 
-function Step3({ file, onChange, onDetected }: {
+function Step3({ file, onChange, onDetected, choices, onChoices }: {
   file: File | null;
   onChange: (f: File | null) => void;
   onDetected: (headings: string[]) => void;
+  choices: Record<string, HeadingChoice>;
+  onChoices: (c: Record<string, HeadingChoice>) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [checking, setChecking] = useState(false);
   const [preview, setPreview] = useState<ParsePreview | null>(null);
   const [checkError, setCheckError] = useState('');
 
+  // Recompute the current header list (for the figure dropdown) from the live choices.
+  function publishHeaders(cands: HeadingCandidate[], ch: Record<string, HeadingChoice>) {
+    const headers = cands
+      .filter(c => (ch[c.text] ?? c.level) === 'header')
+      .map(c => c.text);
+    onDetected(headers);
+  }
+
+  function setChoice(text: string, choice: HeadingChoice) {
+    const next = { ...choices, [text]: choice };
+    onChoices(next);
+    if (preview) publishHeaders(preview.candidates, next);
+  }
+
   async function selectFile(f: File | null) {
     onChange(f);
     setPreview(null);
     setCheckError('');
     onDetected([]);
+    onChoices({});
     if (!f) return;
     // Dry-run parse so the student sees what was detected BEFORE submitting.
     setChecking(true);
@@ -310,7 +330,14 @@ function Step3({ file, onChange, onDetected }: {
       const res = await fetch('/api/parse-preview', { method: 'POST', body: fd });
       const data = await res.json();
       if (!res.ok) setCheckError(data.error || 'Could not read this file.');
-      else { setPreview(data); onDetected(data.headings || []); }
+      else {
+        setPreview(data);
+        // Seed choices with the parser's guesses so the table starts pre-filled.
+        const seeded: Record<string, HeadingChoice> = {};
+        (data.candidates || []).forEach((c: HeadingCandidate) => { seeded[c.text] = c.level; });
+        onChoices(seeded);
+        publishHeaders(data.candidates || [], seeded);
+      }
     } catch {
       setCheckError('Could not check the file — you can still submit, but please verify the preview afterwards.');
     } finally {
@@ -368,25 +395,60 @@ function Step3({ file, onChange, onDetected }: {
       )}
       {preview && (
         <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
-          <p className="text-sm font-semibold text-gray-700">Here&rsquo;s what we detected in your manuscript:</p>
-          {preview.headings.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5">
-              {preview.headings.map((h, i) => (
-                <span key={i} className="px-2 py-0.5 bg-[#e8f5fb] text-[#1B3A5C] text-xs rounded border border-[#c8e8f5]">{h}</span>
-              ))}
+          <div>
+            <p className="text-sm font-semibold text-gray-700">Review the headings we detected</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              We guessed which lines are <strong>main headings</strong> vs. <strong>subheadings</strong>. Correct any that are wrong,
+              or mark something <strong>Not a heading</strong> if it shouldn&rsquo;t be one. <span className="text-gray-400">(Bold usually = main heading, italic = subheading.)</span>
+            </p>
+          </div>
+
+          {preview.candidates.length > 0 ? (
+            <div className="border border-gray-200 rounded-lg divide-y divide-gray-100">
+              {preview.candidates.map((c, i) => {
+                const cur = choices[c.text] ?? c.level;
+                const opts: { v: HeadingChoice; label: string }[] = [
+                  { v: 'header', label: 'Main heading' },
+                  { v: 'subheader', label: 'Subheading' },
+                  { v: 'none', label: 'Not a heading' },
+                ];
+                return (
+                  <div key={i} className={`flex items-center gap-2 p-2 ${cur === 'none' ? 'opacity-50' : ''}`}>
+                    <span className={`flex-1 min-w-0 text-xs truncate ${cur === 'subheader' ? 'pl-4 italic text-gray-600' : 'font-semibold text-gray-800'}`}>
+                      {c.text}
+                    </span>
+                    <div className="flex gap-1 flex-shrink-0">
+                      {opts.map(o => (
+                        <button key={o.v} type="button" onClick={() => setChoice(c.text, o.v)}
+                          className={`px-2 py-1 text-[11px] rounded border transition ${
+                            cur === o.v
+                              ? o.v === 'none'
+                                ? 'bg-gray-200 border-gray-300 text-gray-700 font-semibold'
+                                : 'bg-[#2BA4C8] border-[#2BA4C8] text-white font-semibold'
+                              : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
+                          }`}>
+                          {o.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ) : (
-            <p className="text-xs text-gray-500 italic">No section headings detected.</p>
+            <p className="text-xs text-gray-500 italic">
+              No section headings detected. Make each heading bold (subheadings italic) and short, then re-upload.
+            </p>
           )}
+
           <p className="text-xs text-gray-600">
             <strong>{preview.refCount}</strong> reference{preview.refCount === 1 ? '' : 's'} detected
           </p>
           {preview.warnings.map((w, i) => (
             <div key={i} className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">⚠ {w}</div>
           ))}
-          <p className="text-xs text-gray-600">
-            <span className="font-semibold">Check this list.</span> A heading missing? Make it bold (or italic for a subheading) and short.
-            Something here that isn&rsquo;t a heading? Make sure it isn&rsquo;t fully bold/italic. Then re-upload.
+          <p className="text-xs text-gray-500">
+            A heading missing from the list entirely? Make it bold and short in your Word document, then re-upload.
             {' '}<a href="/formatting" target="_blank" className="text-[#2BA4C8] font-semibold hover:underline">Formatting guide →</a>
           </p>
         </div>
@@ -699,6 +761,8 @@ export default function SubmitPage() {
   // Section headings detected from the manuscript — used to populate the
   // per-figure "which section" dropdown so students pick, not type.
   const [detectedHeadings, setDetectedHeadings] = useState<string[]>([]);
+  // Student's header/subheader/remove re-classification, keyed by heading text.
+  const [sectionChoices, setSectionChoices] = useState<Record<string, HeadingChoice>>({});
 
   const [figState, setFigState] = useState<FigureState>({
     mode: 'images', images: [], docFile: null, docCaptions: '', docSectionNames: '',
@@ -784,6 +848,7 @@ export default function SubmitPage() {
       fd.append('coi', meta.coi);
       // Manuscript
       if (manuscript) fd.append('manuscript', manuscript);
+      fd.append('sectionOverrides', JSON.stringify(sectionChoices));
       // Figures
       if (figState.mode === 'images') {
         figState.images.forEach(fig => fd.append('figures', fig.file));
@@ -811,7 +876,8 @@ export default function SubmitPage() {
   const stepContent = [
     <Step1 key={0} data={author} onChange={setAuthor} />,
     <Step2 key={1} data={meta} onChange={setMeta} />,
-    <Step3 key={2} file={manuscript} onChange={setManuscript} onDetected={setDetectedHeadings} />,
+    <Step3 key={2} file={manuscript} onChange={setManuscript} onDetected={setDetectedHeadings}
+      choices={sectionChoices} onChoices={setSectionChoices} />,
     <Step4 key={3} state={figState} onChange={setFigState} detectedHeadings={detectedHeadings} />,
     <Step5 key={4} author={author} meta={meta} manuscript={manuscript} figState={figState} />,
   ];

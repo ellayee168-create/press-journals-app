@@ -79,10 +79,24 @@ function classifyHeading(raw: string): 'skip' | 'intro' | 'conclusion' | 'ack' |
 
 // ── DOCX path: use mammoth HTML structure (respects Word heading styles) ─────
 
-export async function parseSectionsFromDocx(docxPath: string): Promise<ParsedSections> {
+export async function parseSectionsFromDocx(docxPath: string, overrides?: SectionOverrides): Promise<ParsedSections> {
   const mammoth = await import('mammoth');
   const { value: html } = await mammoth.convertToHtml({ path: docxPath });
-  return parseSectionsFromHtml(html);
+  return parseSectionsFromHtml(html, overrides);
+}
+
+// The list of detected body headings a student can re-classify: each section
+// heading (as a 'header') and each subheading (as a 'subheader'), in order.
+// Derived from an auto-parse so front-matter, references, etc. are excluded.
+export function getHeadingCandidates(sections: ParsedSections): Array<{ text: string; level: 'header' | 'subheader' }> {
+  const out: Array<{ text: string; level: 'header' | 'subheader' }> = [];
+  for (const s of sections.body) {
+    out.push({ text: s.heading, level: 'header' });
+    for (const sub of s.subsections) {
+      if (sub.subheading) out.push({ text: sub.subheading, level: 'subheader' });
+    }
+  }
+  return out;
 }
 
 // Convert raw mammoth HTML inner content to plain text, faithfully preserving all characters.
@@ -176,7 +190,13 @@ function extractTables(html: string): { html: string; tables: string[] } {
   return { html: cleaned, tables };
 }
 
-function parseSectionsFromHtml(html: string): ParsedSections {
+// Student/editor re-classification of detected headings, keyed by the heading's
+// normalized text: 'header' → main section, 'subheader' → nested subsection,
+// 'none' → not a heading (folded into body text).
+export type HeadingChoice = 'header' | 'subheader' | 'none';
+export type SectionOverrides = Record<string, HeadingChoice>;
+
+function parseSectionsFromHtml(html: string, overrides?: SectionOverrides): ParsedSections {
   // level: 0 = body text, 1 = main heading, 2 = subheading; table segments carry html.
   type Seg = { level: 0 | 1 | 2; text: string; table?: string; fmt?: HeadingFormat };
   const segments: Seg[] = [];
@@ -231,6 +251,21 @@ function parseSectionsFromHtml(html: string): ParsedSections {
     if (s.fmt === 'main') s.level = 1;
     else if (s.fmt === 'sub') s.level = 2;
     else if (s.fmt === 'italic') s.level = italicIsMain ? 1 : 2;
+  }
+
+  // Apply the student's/editor's heading re-classification. Any detected heading
+  // whose text matches an override is forced to that role; 'none' demotes it to
+  // body text. Keys are normalized so the client can send raw heading text.
+  if (overrides && Object.keys(overrides).length) {
+    const normMap: SectionOverrides = {};
+    for (const [k, v] of Object.entries(overrides)) normMap[normalise(k)] = v;
+    for (const s of segments) {
+      if (s.level === 0) continue;
+      const choice = normMap[normalise(s.text)];
+      if (choice === 'header') s.level = 1;
+      else if (choice === 'subheader') s.level = 2;
+      else if (choice === 'none') s.level = 0;
+    }
   }
 
   // Merge a bare URL paragraph that immediately follows a body paragraph

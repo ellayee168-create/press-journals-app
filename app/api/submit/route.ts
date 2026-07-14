@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { getDb, Figure } from '@/lib/db';
 import { extractText } from '@/lib/extract';
-import { parseSections, parseSectionsFromDocx, applyFigureSectionMatches } from '@/lib/parse-sections';
+import { parseSections, parseSectionsFromDocx, applyFigureSectionMatches, SectionOverrides } from '@/lib/parse-sections';
 import { sendProofReadyNotification } from '@/lib/email';
 import { extractFiguresFromDocx, extractFiguresFromPdf } from '@/lib/extract-figures';
 
@@ -72,6 +72,11 @@ export async function POST(req: NextRequest) {
     // Extract & parse manuscript text
     let sections: string | null = null;
     let referencesRaw: string | null = null;
+    // Student's header/subheader/remove re-classification of detected headings.
+    const overridesRaw = get('sectionOverrides');
+    let sectionOverrides: SectionOverrides = {};
+    try { if (overridesRaw) sectionOverrides = JSON.parse(overridesRaw); } catch { /* ignore bad JSON */ }
+
     let parsedSections: Awaited<ReturnType<typeof parseSections>> | null = null;
     if (manuscriptPath && manuscriptFile) {
       const isDocx =
@@ -79,10 +84,10 @@ export async function POST(req: NextRequest) {
         manuscriptPath.endsWith('.docx');
 
       if (isDocx) {
-        parsedSections = await parseSectionsFromDocx(manuscriptPath);
+        parsedSections = await parseSectionsFromDocx(manuscriptPath, sectionOverrides);
       } else {
         const raw = await extractText(manuscriptPath, manuscriptFile.type || '');
-        parsedSections = parseSections(raw);
+        parsedSections = parseSections(raw); // overrides apply to the DOCX structural parse only
       }
       referencesRaw = parsedSections.references || null;
       sections = JSON.stringify(parsedSections);
@@ -181,13 +186,13 @@ export async function POST(req: NextRequest) {
         first_name, last_name, affiliation, email, guardian_email, is_corresponding,
         title, abstract, keywords, journal, acknowledgments, coi,
         sections, references_raw, manuscript_path, figures,
-        co_authors, article_type
+        co_authors, article_type, section_overrides
       ) VALUES (
         ?, ?, 'pending',
         ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?,
-        ?, ?
+        ?, ?, ?
       )
     `).run(
       id, Date.now(),
@@ -200,6 +205,7 @@ export async function POST(req: NextRequest) {
       JSON.stringify(figuresJson),
       JSON.stringify(coAuthors),
       articleType,
+      JSON.stringify(sectionOverrides),
     );
 
     // Notify the editorial inbox that a new proof is ready. No student emails.
