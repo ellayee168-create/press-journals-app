@@ -97,10 +97,24 @@ export default function FormattingGuide() {
         </Rule>
 
         <Rule
-          title="9. Don't worry about your title, author names, or abstract in the document"
-          why="Your title, authors, affiliations, and abstract are collected by the submission form itself, so the system ignores everything in your document before your first section heading — and uses the form's versions. This keeps the cover page consistent for every article."
+          title="9. Start your article body with an 'Introduction' heading"
+          why="The system finds where your article body begins by looking for the first standard opening section — Introduction (or Background, Methods, Results, or Discussion). Everything above that first standard heading is treated as your title block and skipped. If your paper never uses one of those standard headings, the system can't tell where the front matter ends, and your title or author lines may slip into the body."
         >
-          <p>You can leave your title block and abstract in the document; they&rsquo;re simply skipped. The <strong>form&rsquo;s</strong> title, author, and abstract fields are what appear in the final article.</p>
+          <p>Give your opening section a bold heading reading <strong>Introduction</strong> (or Background). This clearly marks where your article starts.</p>
+        </Rule>
+
+        <Rule
+          title="10. Your title, authors, and abstract come from the form — not the document"
+          why="Your title, authors, affiliations, and abstract are entered in the submission form, so the final article always uses those. Anything above your first section heading in the document is skipped, and if your document also contains an Abstract or Keywords section, those are ignored too — the form's versions are used instead. This keeps every article's cover page consistent."
+        >
+          <p>You can leave your title block, abstract, and keywords in the document; they&rsquo;re simply skipped. Fill in the <strong>form&rsquo;s</strong> title, author, abstract, and keyword fields — those are what appear in the final article.</p>
+        </Rule>
+
+        <Rule
+          title="11. Some sections are handled separately and won't appear in your article body"
+          why="A few administrative sections are managed elsewhere or aren't part of the formatted article, so the system removes them from the body: figure/table caption lists (your figures are uploaded separately), and back-matter sections like Funding, Data Availability, Ethics, Supplementary Materials, Abbreviations, Author Contributions, and ORCID. Your Conflict-of-Interest statement comes from the form, and your Acknowledgements are kept."
+        >
+          <p>Don&rsquo;t rely on these sections appearing in the body: <strong>Figure/Table legends</strong> (upload figures separately), <strong>Funding</strong>, <strong>Data Availability</strong>, <strong>Ethics</strong>, <strong>Supplementary Materials</strong>, <strong>Abbreviations</strong>, <strong>Author Contributions</strong>, <strong>ORCID</strong>. If content matters for your article, put it inside one of your regular body sections. (<strong>References</strong>, <strong>Acknowledgements</strong>, and a <strong>Conclusion</strong> are all kept.)</p>
         </Rule>
 
         <div className="bg-white border border-gray-200 rounded-xl p-5">
