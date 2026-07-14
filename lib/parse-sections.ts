@@ -121,30 +121,33 @@ function looksLikeCitation(text: string): boolean {
 //   1 = main section heading (bold, <h1>/<h2>, or a known section name)
 //   2 = subheading (italic, or <h3>)
 //   0 = not a heading (ordinary body text)
+// Raw heading format, before deciding whether italic means main-level or sub.
 // Numbered / ALL-CAPS auto-detection was intentionally removed: it produced many
-// false positives on numbered lists and table-cell abbreviations. Detection now
-// keys off explicit bold/italic formatting, which authors use reliably, plus the
-// known section-name list. Editors can re-classify anything in "Edit sections".
-function headingLevel(rawInner: string, tag: string, text: string): 0 | 1 | 2 {
+// false positives on numbered lists and table-cell abbreviations. Detection keys
+// off explicit bold/italic formatting, which authors use reliably, plus the known
+// section-name list. Editors can re-classify anything in "Edit sections".
+type HeadingFormat = 'main' | 'italic' | 'sub' | 'none';
+
+function headingFormat(rawInner: string, tag: string, text: string): HeadingFormat {
   const textNoColon = text.endsWith(':') ? text.slice(0, -1).trim() : text;
 
-  if (tag === 'h1' || tag === 'h2') return 1;
-  if (tag === 'h3') return 2;
+  if (tag === 'h1' || tag === 'h2') return 'main';
+  if (tag === 'h3') return 'sub';
 
   // A recognised section name is always a main heading, whatever its formatting.
-  if (isKnownSectionName(textNoColon)) return 1;
+  if (isKnownSectionName(textNoColon)) return 'main';
 
   // Headings are short; a long line or one ending like a sentence is body text.
-  if (textNoColon.length > 120 || textNoColon.endsWith('.')) return 0;
+  if (textNoColon.length > 120 || textNoColon.endsWith('.')) return 'none';
 
   const innerT = rawInner.trim();
   const fullyBold = /^<strong[^>]*>[\s\S]*<\/strong>$/i.test(innerT);
   const fullyItalic = /^<em[^>]*>[\s\S]*<\/em>$/i.test(innerT);
 
-  if (fullyBold && !looksLikeCitation(textNoColon)) return 1;
-  if (fullyItalic && !looksLikeCitation(textNoColon)) return 2;
+  if (fullyBold && !looksLikeCitation(textNoColon)) return 'main';
+  if (fullyItalic && !looksLikeCitation(textNoColon)) return 'italic';
 
-  return 0;
+  return 'none';
 }
 
 // Pull <table> blocks out of the HTML so their cell paragraphs don't leak into
@@ -178,12 +181,12 @@ function extractTables(html: string): { html: string; tables: string[] } {
 
 function parseSectionsFromHtml(html: string): ParsedSections {
   // level: 0 = body text, 1 = main heading, 2 = subheading; table segments carry html.
-  type Seg = { level: 0 | 1 | 2; text: string; table?: string };
+  type Seg = { level: 0 | 1 | 2; text: string; table?: string; fmt?: HeadingFormat };
   const segments: Seg[] = [];
 
   const { html: noTableHtml, tables } = extractTables(html);
 
-  // Walk top-level block elements in document order.
+  // Pass 1 — collect segments with their raw heading format (italic unresolved).
   const blockRe = /<(h[1-3]|p|ol|ul)[^>]*>([\s\S]*?)<\/\1>/gi;
   let m: RegExpExecArray | null;
   let olCounter = 1; // persists across consecutive <ol> blocks, resets at each heading
@@ -205,7 +208,6 @@ function parseSectionsFromHtml(html: string): ParsedSections {
       }
     } else {
       const text = htmlToText(innerHtml);
-      // Table sentinel → emit the preserved clean-HTML table.
       const tableMatch = text.match(/^@@TABLE(\d+)@@$/);
       if (tableMatch) {
         segments.push({ level: 0, text: '', table: tables[Number(tableMatch[1])] });
@@ -213,13 +215,26 @@ function parseSectionsFromHtml(html: string): ParsedSections {
       }
       if (!text || text.replace(/[^a-z0-9]/gi, '').length < 3) continue;
       const textNoColon = text.endsWith(':') ? text.slice(0, -1).trim() : text;
-      const level = headingLevel(innerHtml, tag, text);
-      if (level > 0) olCounter = 1;
-      segments.push({ level, text: level > 0 ? textNoColon : text });
+      const fmt = headingFormat(innerHtml, tag, text);
+      if (fmt !== 'none') olCounter = 1;
+      segments.push({ level: 0, text: fmt !== 'none' ? textNoColon : text, fmt });
     }
   }
 
   if (segments.length === 0) return { body: [], raw: '' };
+
+  // Decide whether italic headings are a MAIN level or a SUB level for THIS
+  // document. Some authors italicise their main section headings (no bold at
+  // all); others use bold for sections and italic for subheadings. If italic
+  // headings outnumber bold body-level headings, italic is the main level.
+  const boldBodyCount = segments.filter(s => s.fmt === 'main' && classifyHeading(s.text) === 'body').length;
+  const italicCount = segments.filter(s => s.fmt === 'italic').length;
+  const italicIsMain = italicCount > boldBodyCount;
+  for (const s of segments) {
+    if (s.fmt === 'main') s.level = 1;
+    else if (s.fmt === 'sub') s.level = 2;
+    else if (s.fmt === 'italic') s.level = italicIsMain ? 1 : 2;
+  }
 
   // Merge a bare URL paragraph that immediately follows a body paragraph
   // (reference pattern: <ol><li>Author, Title, date,</li></ol><p>www.url.com</p>)
