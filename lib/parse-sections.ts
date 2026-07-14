@@ -22,17 +22,14 @@ const KNOWN_REFS    = new Set([
   'references', 'reference', 'reference list', 'bibliography', 'works cited',
   'literature cited', 'citations', 'cited references',
 ]);
-// Sections collected elsewhere on the form or handled separately — dropped from the body.
+// Sections DROPPED from the body only because the form already collects them —
+// keeping them would print the same content twice. Everything else the student
+// writes (Funding, Ethics, Data Availability, Limitations, etc.) is kept as a
+// normal body section.
 const KNOWN_SKIP    = new Set([
-  'abstract', 'keywords', 'key words', 'keyword',
-  'author contributions', 'author contribution', 'contributions',
-  'funding', 'funding sources', 'financial support',
-  'conflict of interest', 'conflicts of interest', 'competing interests',
+  'abstract', 'keywords', 'key words', 'keyword',                    // collected by the form
+  'conflict of interest', 'conflicts of interest', 'competing interests', // form's COI field
   'declaration of competing interest', 'declaration of interest', 'disclosure', 'disclosures',
-  'data availability', 'data availability statement', 'code availability',
-  'ethics statement', 'ethics approval', 'ethical approval', 'ethics',
-  'supplementary', 'supplementary materials', 'supplementary material', 'supplementary information',
-  'supporting information', 'abbreviations', 'author information', 'orcid',
 ]);
 // Figure/table captions are collected & rendered separately, so any legend section must not leak in.
 const KNOWN_FIGS    = new Set([

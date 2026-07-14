@@ -111,10 +111,10 @@ export default function FormattingGuide() {
         </Rule>
 
         <Rule
-          title="11. Some sections are handled separately and won't appear in your article body"
-          why="A few administrative sections are managed elsewhere or aren't part of the formatted article, so the system removes them from the body: figure/table caption lists (your figures are uploaded separately), and back-matter sections like Funding, Data Availability, Ethics, Supplementary Materials, Abbreviations, Author Contributions, and ORCID. Your Conflict-of-Interest statement comes from the form, and your Acknowledgements are kept."
+          title="11. A few sections are skipped only because they'd be duplicated"
+          why="The only sections removed from your body are ones the system already gets from somewhere else, so they don't appear twice: your Abstract, Keywords, and Conflict-of-Interest statement all come from the form, and your figure captions come from the figures you upload. Everything else you write — including Funding, Ethics, Data Availability, Limitations, and any custom section — is kept as a normal section."
         >
-          <p>Don&rsquo;t rely on these sections appearing in the body: <strong>Figure/Table legends</strong> (upload figures separately), <strong>Funding</strong>, <strong>Data Availability</strong>, <strong>Ethics</strong>, <strong>Supplementary Materials</strong>, <strong>Abbreviations</strong>, <strong>Author Contributions</strong>, <strong>ORCID</strong>. If content matters for your article, put it inside one of your regular body sections. (<strong>References</strong>, <strong>Acknowledgements</strong>, and a <strong>Conclusion</strong> are all kept.)</p>
+          <p>These are skipped because they&rsquo;re collected elsewhere: <strong>Abstract</strong>, <strong>Keywords</strong>, and <strong>Conflict of Interest</strong> (from the form), and <strong>Figure/Table legend</strong> lists (from your uploaded figures). <strong>Every other section you write is kept</strong> — Funding, Ethics, Data Availability, Limitations, References, Acknowledgements, Conclusion, and any section of your own.</p>
         </Rule>
 
         <div className="bg-white border border-gray-200 rounded-xl p-5">
