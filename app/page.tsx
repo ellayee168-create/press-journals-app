@@ -14,7 +14,7 @@ const JOURNALS = [
 
 const ARTICLE_TYPES = ['Research Article', 'Review Article'];
 
-const STEPS = ['Author Info', 'Article Metadata', 'Upload Manuscript', 'Upload Figures', 'Review & Submit'];
+const STEPS = ['Author Info', 'Article Info', 'Upload Manuscript', 'Upload Figures', 'Review & Submit'];
 
 function Label({ children }: { children: React.ReactNode }) {
   return <label className="block text-sm font-semibold text-gray-700 mb-1">{children}</label>;
@@ -349,18 +349,17 @@ function Step3({ file, onChange, onDetected, choices, onChoices }: {
     <div className="space-y-4">
       <p className="text-sm text-gray-600">
         Upload your manuscript as a <strong>Word (.docx)</strong> file (recommended) or PDF.
-        The app extracts your text and detects section headings automatically.
+        The system extracts your text and detects section headings automatically.
       </p>
       <div className="bg-[#f0fafd] border border-[#c8e8f5] rounded-lg p-3 text-xs text-gray-600 space-y-1">
-        <p className="font-semibold text-[#1B3A5C]">Format your manuscript so it&rsquo;s read correctly:</p>
+        <p className="font-semibold text-[#1B3A5C]">Formatting tips:</p>
         <p>• <strong>Main section headings</strong> → make them <span className="font-bold">bold</span>, on their own line, and short (no ending period).</p>
         <p>• <strong>Subheadings</strong> → make them <span className="italic">italic</span>, on their own line.</p>
         <p>• Make <strong>tables</strong> with Word&rsquo;s Insert → Table (not tabs/spaces). Don&rsquo;t bold or italicize whole sentences or citations.</p>
         <p className="pt-1">
           <a href="/formatting" target="_blank" className="text-[#2BA4C8] font-semibold hover:underline">
-            Read the full formatting guide →
+            Full formatting guide here
           </a>
-          {' '}(explains exactly how and why each rule works)
         </p>
       </div>
       <div
@@ -398,8 +397,8 @@ function Step3({ file, onChange, onDetected, choices, onChoices }: {
           <div>
             <p className="text-sm font-semibold text-gray-700">Review the headings we detected</p>
             <p className="text-xs text-gray-500 mt-0.5">
-              We guessed which lines are <strong>main headings</strong> vs. <strong>subheadings</strong>. Correct any that are wrong,
-              or mark something <strong>Not a heading</strong> if it shouldn&rsquo;t be one. <span className="text-gray-400">(Bold usually = main heading, italic = subheading.)</span>
+              Fix any that are wrong, or mark something <strong>Not a heading</strong>.
+              Your abstract, keywords, conflict of interest, and figure captions come from the form, so they won&rsquo;t appear here — everything else you write is kept.
             </p>
           </div>
 

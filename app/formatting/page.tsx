@@ -4,14 +4,11 @@ export const metadata = {
   title: 'Manuscript Formatting Guide — PRESS Journals',
 };
 
-function Rule({ title, children, why }: { title: string; children: React.ReactNode; why: string }) {
+function Rule({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="border border-gray-200 rounded-xl p-5 bg-white">
       <h3 className="font-bold text-gray-800 mb-2">{title}</h3>
       <div className="text-sm text-gray-700 space-y-1.5">{children}</div>
-      <p className="text-xs text-gray-500 mt-3 bg-gray-50 border-l-2 border-[#2BA4C8] pl-3 py-1.5">
-        <span className="font-semibold text-[#2BA4C8]">Why:</span> {why}
-      </p>
     </div>
   );
 }
@@ -31,99 +28,47 @@ export default function FormattingGuide() {
         <div className="bg-[#f0fafd] border border-[#c8e8f5] rounded-xl p-5">
           <p className="text-sm text-gray-700">
             Our system reads your manuscript automatically and rebuilds it into the journal&rsquo;s format.
-            It works best when your document follows a few simple formatting rules. Each rule below explains
-            <strong> exactly what to do</strong> and <strong>why it matters</strong>, so you can format your
-            document once and have it come through cleanly. After you upload, the form shows you what was
-            detected — if anything looks wrong, fix the formatting and re-upload.
+            It works best when your document follows a few formatting rules.
           </p>
         </div>
 
-        <Rule
-          title="1. Submit a Word document (.docx), not a PDF"
-          why="A Word file carries the structure of your writing — which lines are headings, which text is bold or italic, where your tables are. A PDF is only a picture of the page, so the system has to guess at all of that and often gets it wrong. Word documents parse far more reliably."
-        >
-          <p>Save your manuscript as a <strong>.docx</strong> file. If you wrote it in Google Docs, use <em>File → Download → Microsoft Word (.docx)</em>.</p>
+        <Rule title="1. Submit a Word document (.docx), not a PDF">
+          <p>Save your manuscript as a <strong>.docx</strong> file. From Google Docs, use <em>File → Download → Microsoft Word (.docx)</em>. Word files come through far more reliably than PDFs.</p>
         </Rule>
 
-        <Rule
-          title="2. Mark main section headings in bold"
-          why="The system identifies your main sections (Introduction, Discussion, and your own section titles) by looking for lines that are entirely bold. It has no other reliable way to tell a heading from a normal sentence."
-        >
-          <p>Put each <strong>main section heading in bold</strong>, on its own line. For example, a bold line reading <strong>Introduction</strong> or <strong>Causes and Risk Factors</strong>.</p>
-          <p className="text-gray-500">Alternatively, you may use Word&rsquo;s built-in <em>Heading 1</em> style (Home → Styles).</p>
+        <Rule title="2. Make main section headings bold">
+          <p>Put each main section heading in <strong>bold</strong>, on its own line — e.g. <strong>Introduction</strong>. (Word&rsquo;s <em>Heading 1</em> style also works.)</p>
         </Rule>
 
-        <Rule
-          title="3. Mark subheadings in italics"
-          why="Within a section, the system tells subheadings apart from main headings by their formatting: bold means a main heading, italics means a subheading nested underneath it. (If your paper uses italics for its main headings instead, the system will detect that and adapt — but pick one style and be consistent.)"
-        >
-          <p>Put each <strong>subheading in italics</strong>, on its own line — for example, an italic line reading <em>Drug resistance mechanisms</em> under a bold <strong>Treatments</strong> section.</p>
-          <p className="text-gray-500">Alternatively, use Word&rsquo;s built-in <em>Heading 2</em> style.</p>
+        <Rule title="3. Make subheadings italic">
+          <p>Put each subheading in <em>italics</em>, on its own line, under its section. (Word&rsquo;s <em>Heading 2</em> style also works.)</p>
         </Rule>
 
-        <Rule
-          title="4. Keep headings short — never end a heading with a period"
-          why="To avoid mistaking ordinary sentences for headings, the system treats any line that is very long, or that ends in a period, as body text — even if it is bold or italic. A real heading is a short label, not a full sentence."
-        >
-          <p>Keep each heading to a short phrase (a dozen words or fewer) and <strong>do not end it with a period</strong>.</p>
+        <Rule title="4. Keep headings short, with no period">
+          <p>A heading should be a short phrase. Anything long or ending in a period is treated as regular text.</p>
         </Rule>
 
-        <Rule
-          title="5. Don't bold or italicize whole sentences or citations"
-          why="Because a fully-bold or fully-italic line is read as a heading, italicizing an entire sentence — or a full citation like a reference line — can make the system treat it as a section title. (The system automatically skips lines that clearly look like citations, e.g. ones ending in a year in parentheses, but it's safest not to format whole lines this way.)"
-        >
-          <p>Use bold and italics <strong>only</strong> for actual headings and subheadings, and for short emphasis <em>inside</em> a sentence. Don&rsquo;t format an entire paragraph, sentence, or citation as bold/italic.</p>
+        <Rule title="5. Only bold or italicize actual headings">
+          <p>Don&rsquo;t bold or italicize whole sentences or citations — the system may read them as headings. Use bold/italics for headings and short emphasis only.</p>
         </Rule>
 
-        <Rule
-          title="6. Don't rely on ALL CAPS or numbering alone to mark a heading"
-          why="Many abbreviations (DNA, ALL, MRI) and list items (1., 2., 3.) are written in capitals or start with a number, so the system does NOT treat capitalization or numbering as a sign of a heading — doing so would misread abbreviations and lists as section titles. Formatting (bold/italic) is the reliable signal."
-        >
-          <p>A heading typed in ALL CAPS or numbered (e.g. <em>1. Methods</em>) but <strong>not</strong> bold or italic will be read as normal text. Bold or italicize your headings so they&rsquo;re recognized.</p>
+        <Rule title="6. Use real tables (Insert → Table)">
+          <p>Make tables with Word&rsquo;s <strong>Insert → Table</strong> so they&rsquo;re kept intact. Tables faked with tabs or spaces come out as scattered text.</p>
         </Rule>
 
-        <Rule
-          title="7. Use real tables — insert them with Word's table tool"
-          why="The system detects and rebuilds genuine Word tables (Insert → Table), keeping your rows and columns intact. If you fake a table using tabs, spaces, or separate lines, the system can't tell it's a table and the contents scatter into messy text."
-        >
-          <p>Create every table with <strong>Insert → Table</strong> in Word. Avoid lining up columns with tabs or spaces.</p>
+        <Rule title="7. Label your references 'References'">
+          <p>Put a bold <strong>References</strong> heading above your citation list, one reference per line (or a numbered list).</p>
         </Rule>
 
-        <Rule
-          title="8. Label your references section 'References'"
-          why="The system finds your reference list by looking for a heading named References (or Bibliography / Works Cited). It keeps everything under that heading as your citations, with each entry preserved."
-        >
-          <p>Put a bold heading reading <strong>References</strong> above your citation list. List <strong>one reference per line</strong> (or use Word&rsquo;s numbered list). If a link sits on its own line right after a reference, it will be joined to that reference.</p>
-        </Rule>
-
-        <Rule
-          title="9. Start your article body with an 'Introduction' heading"
-          why="The system finds where your article body begins by looking for the first standard opening section — Introduction (or Background, Methods, Results, or Discussion). Everything above that first standard heading is treated as your title block and skipped. If your paper never uses one of those standard headings, the system can't tell where the front matter ends, and your title or author lines may slip into the body."
-        >
-          <p>Give your opening section a bold heading reading <strong>Introduction</strong> (or Background). This clearly marks where your article starts.</p>
-        </Rule>
-
-        <Rule
-          title="10. Your title, authors, and abstract come from the form — not the document"
-          why="Your title, authors, affiliations, and abstract are entered in the submission form, so the final article always uses those. Anything above your first section heading in the document is skipped, and if your document also contains an Abstract or Keywords section, those are ignored too — the form's versions are used instead. This keeps every article's cover page consistent."
-        >
-          <p>You can leave your title block, abstract, and keywords in the document; they&rsquo;re simply skipped. Fill in the <strong>form&rsquo;s</strong> title, author, abstract, and keyword fields — those are what appear in the final article.</p>
-        </Rule>
-
-        <Rule
-          title="11. A few sections are skipped only because they'd be duplicated"
-          why="The only sections removed from your body are ones the system already gets from somewhere else, so they don't appear twice: your Abstract, Keywords, and Conflict-of-Interest statement all come from the form, and your figure captions come from the figures you upload. Everything else you write — including Funding, Ethics, Data Availability, Limitations, and any custom section — is kept as a normal section."
-        >
-          <p>These are skipped because they&rsquo;re collected elsewhere: <strong>Abstract</strong>, <strong>Keywords</strong>, and <strong>Conflict of Interest</strong> (from the form), and <strong>Figure/Table legend</strong> lists (from your uploaded figures). <strong>Every other section you write is kept</strong> — Funding, Ethics, Data Availability, Limitations, References, Acknowledgements, Conclusion, and any section of your own.</p>
+        <Rule title="8. Start your body with an 'Introduction' heading">
+          <p>Give your opening section a bold <strong>Introduction</strong> heading. This marks where your article begins — anything above it (title, author names) is skipped, since those come from the form.</p>
         </Rule>
 
         <div className="bg-white border border-gray-200 rounded-xl p-5">
           <h3 className="font-bold text-gray-800 mb-2">After you upload</h3>
           <p className="text-sm text-gray-700">
-            The form shows a <strong>&ldquo;Here&rsquo;s what we detected&rdquo;</strong> box listing every section
-            heading it found and how many references it read. Check it: if a heading is missing, make sure it&rsquo;s
-            bold (or italic for a subheading) and short; if something that isn&rsquo;t a heading shows up, make sure
-            it isn&rsquo;t fully bold/italic. Fix your Word document and re-upload — it updates instantly.
+            You&rsquo;ll see the headings we detected, with each marked as a main heading or subheading.
+            Fix any that are wrong, or re-upload after adjusting your Word document.
           </p>
           <Link href="/" className="inline-block mt-4 px-5 py-2 bg-[#2BA4C8] text-white rounded-lg text-sm font-semibold hover:bg-[#2090b0]">
             Back to submission form
