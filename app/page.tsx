@@ -398,7 +398,7 @@ function Step3({ file, onChange, onDetected, choices, onChoices }: {
             <p className="text-sm font-semibold text-gray-700">Review the headings we detected</p>
             <p className="text-xs text-gray-500 mt-0.5">
               Fix any that are wrong, or mark something <strong>Not a heading</strong>.
-              Your abstract, keywords, conflict of interest, and figure captions come from the form, so they won&rsquo;t appear in the headings below.
+              Standard sections (Introduction, Conclusion, References) are detected automatically, and your abstract, keywords, conflict of interest, and figure captions come from the form — so none of these appear in the headings below.
             </p>
           </div>
 
