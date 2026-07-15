@@ -398,7 +398,7 @@ function Step3({ file, onChange, onDetected, choices, onChoices }: {
             <p className="text-sm font-semibold text-gray-700">Review the headings we detected</p>
             <p className="text-xs text-gray-500 mt-0.5">
               Fix any that are wrong, or mark something <strong>Not a heading</strong>.
-              Your abstract, keywords, conflict of interest, and figure captions come from the form, so they won&rsquo;t appear here — everything else you write is kept.
+              Your abstract, keywords, conflict of interest, and figure captions come from the form, so they won&rsquo;t appear in the headings below.
             </p>
           </div>
 
@@ -527,7 +527,7 @@ function Step4({ state, onChange, detectedHeadings }: {
   return (
     <div className="space-y-5">
       <p className="text-sm text-gray-600">
-        Upload figures as individual images, or as a single Word or PDF document containing all figures.
+        Upload figures as individual images, or as one Word/PDF document with all figures.
       </p>
 
       {/* Mode toggle */}
@@ -597,7 +597,7 @@ function Step4({ state, onChange, detectedHeadings }: {
                     ) : (
                       <input type="text" value={fig.sectionName}
                         onChange={e => updateSectionName(i, e.target.value)}
-                        placeholder="Which section? (upload your manuscript first to pick from a list)"
+                        placeholder="Which section? (upload manuscript to pick from a list)"
                         className="w-full border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[#2BA4C8] bg-gray-50 text-gray-600 placeholder-gray-400" />
                     )}
                   </div>
@@ -651,7 +651,7 @@ function Step4({ state, onChange, detectedHeadings }: {
               placeholder={"Figure 1: Layers of the epidermis.\nFigure 2: UV absorption spectrum of carotenoids.\nFigure 3: Western blot results."}
             />
             <p className="text-xs text-gray-400 mt-1">
-              Enter one caption per line. They will be matched to figures in document order.
+              One caption per line, in figure order.
             </p>
           </div>
 
@@ -664,7 +664,7 @@ function Step4({ state, onChange, detectedHeadings }: {
               placeholder={"Introduction\nCancer Biology and Skin Cancer\nMethods"}
             />
             <p className="text-xs text-gray-400 mt-1">
-              Type the section name where each figure should appear — line 1 for Figure 1, line 2 for Figure 2, etc. Leave a line blank to use automatic placement.
+              One section per line (line 1 = Figure 1). Leave blank for automatic placement.
             </p>
             {detectedHeadings.length > 0 && (
               <p className="text-xs text-gray-500 mt-1">
