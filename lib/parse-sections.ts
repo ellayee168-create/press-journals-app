@@ -325,25 +325,36 @@ function mergedSegmentsToBlocks(
 
 // ── PDF / plain-text path ─────────────────────────────────────────────────────
 
+// PDFs carry no bold/italic information, so heading detection can ONLY rely on
+// recognised section names (Abstract, Introduction, Methods, Results, Discussion,
+// Conclusion, References, Acknowledgements, …). The old all-caps and title-case
+// heuristics fired on running footers, table cells, and reference fragments — the
+// exact failures beta testers hit. Custom section headings can't be recovered from
+// a PDF; students are told to submit .docx for full structure.
 function looksLikeHeading(line: string): boolean {
   const t = line.trim();
-  if (!t || t.length > 100) return false;
+  if (!t || t.length > 60) return false;
   if (t.endsWith('.') || t.endsWith(',') || t.endsWith(';')) return false;
-  const words = t.split(/\s+/);
-  if (words.length > 12) return false;
-  // All-caps word(s)
-  if (t === t.toUpperCase() && /[A-Z]/.test(t)) return true;
-  // Starts with capital, no lowercase 'e' at start of sentence words
-  const n = normalise(t);
-  if (KNOWN_INTRO.has(n) || KNOWN_CONCL.has(n) || KNOWN_ACK.has(n) || KNOWN_REFS.has(n)) return true;
-  // Title-case short line with few very common filler words
-  if (/^[A-Z]/.test(t)) {
-    const fillers = new Set(['the', 'a', 'an', 'in', 'of', 'and', 'to', 'is', 'was', 'are', 'for', 'on', 'at', 'by', 'with', 'from']);
-    const fillerCount = words.map(w => w.toLowerCase()).filter(w => fillers.has(w)).length;
-    const ratio = fillerCount / words.length;
-    if (ratio < 0.4 && words.length <= 8) return true;
+  return isKnownSectionName(t);
+}
+
+// Detect and remove running headers/footers: a short line whose text (ignoring
+// page numbers) repeats on many pages. This strips things like a running title
+// printed at the bottom of every page, which otherwise become fake headings.
+function stripRunningHeadersFooters(text: string): string {
+  const lines = text.split('\n');
+  const norm = (l: string) =>
+    l.replace(/\t/g, ' ').replace(/\b\d+\b/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+  const freq = new Map<string, number>();
+  for (const l of lines) {
+    const n = norm(l);
+    if (n.length >= 8 && n.length <= 100) freq.set(n, (freq.get(n) ?? 0) + 1);
   }
-  return false;
+  // Repeats on 4+ pages → almost certainly a running header/footer, not content.
+  const repeated = new Set<string>();
+  freq.forEach((count, n) => { if (count >= 4) repeated.add(n); });
+  if (repeated.size === 0) return text;
+  return lines.filter(l => !repeated.has(norm(l))).join('\n');
 }
 
 export function parseSections(rawText: string): ParsedSections {
@@ -351,7 +362,7 @@ export function parseSections(rawText: string): ParsedSections {
     return { body: [], raw: rawText ?? '' };
   }
 
-  const lines = rawText.split('\n').map(l => l.trimEnd());
+  const lines = stripRunningHeadersFooters(rawText).split('\n').map(l => l.trimEnd());
 
   interface Block { heading: string; paragraphs: string[] }
   const blocks: Block[] = [];

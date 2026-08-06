@@ -27,6 +27,9 @@ export async function GET(req: NextRequest) {
         const s = sections ? JSON.parse(sections) : null;
         const hasStructure = !!s && !s.raw && (s.introduction || (s.body?.length ?? 0) > 0 || s.conclusion);
         parseOk = !!hasStructure && !!(references_raw || s?.references);
+        // PDF manuscripts can't preserve tables and parse less reliably than Word —
+        // always flag them so the editor reviews formatting before publishing.
+        if (manuscript_path.toLowerCase().endsWith('.pdf')) parseOk = false;
       } catch {
         parseOk = false;
       }

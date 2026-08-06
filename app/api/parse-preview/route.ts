@@ -60,6 +60,12 @@ export async function POST(req: NextRequest) {
       (parsed.conclusion?.length ?? 0);
 
     const warnings: string[] = [];
+    // PDFs lose tables, custom headings, and clean references. Steer to .docx.
+    if (ext === '.pdf') {
+      warnings.push(
+        'You uploaded a PDF. Tables, custom section headings, and reference lists often don’t carry over correctly from a PDF. For best results, upload a Word (.docx) file instead.',
+      );
+    }
     if (totalChars < 500) {
       warnings.push(
         'Very little text could be read from this file. If it is a scanned PDF or an image-based document, please upload a Word (.docx) version instead.',
