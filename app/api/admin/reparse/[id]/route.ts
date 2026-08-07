@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAuthed } from '@/lib/admin-auth';
 import { getDb, Submission, Figure } from '@/lib/db';
-import { parseSections, parseSectionsFromDocx, applyFigureSectionMatches, SectionOverrides } from '@/lib/parse-sections';
-import { extractText } from '@/lib/extract';
+import { parseSectionsFromDocx, parseSectionsFromPdf, applyFigureSectionMatches, SectionOverrides } from '@/lib/parse-sections';
 import path from 'path';
 
 export const runtime = 'nodejs';
@@ -31,8 +30,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (isDocx) {
     parsed = await parseSectionsFromDocx(manuscriptPath, overrides);
   } else {
-    const raw = await extractText(manuscriptPath, ext === '.pdf' ? 'application/pdf' : '');
-    parsed = parseSections(raw);
+    parsed = await parseSectionsFromPdf(manuscriptPath);
   }
 
   const referencesRaw = parsed.references ?? null;

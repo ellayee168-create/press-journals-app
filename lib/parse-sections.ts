@@ -85,6 +85,20 @@ export async function parseSectionsFromDocx(docxPath: string, overrides?: Sectio
   return parseSectionsFromHtml(html, overrides);
 }
 
+// PDF path: parse the text, and recover real tables from the PDF grid so they
+// render as tables instead of garbled body text. Table rows (tab-separated) are
+// removed from the text so the same content isn't duplicated as prose.
+export async function parseSectionsFromPdf(pdfPath: string): Promise<ParsedSections> {
+  const { extractPdfContent } = await import('./extract');
+  const { text, tables } = await extractPdfContent(pdfPath);
+  const textNoTables = text.split('\n').filter(l => !/\t[^\t]*\t/.test(l)).join('\n');
+  const parsed = parseSections(textNoTables);
+  if (tables.length && !parsed.raw) {
+    parsed.tables = [...(parsed.tables ?? []), ...tables];
+  }
+  return parsed;
+}
+
 // The list of detected body headings a student can re-classify: each section
 // heading (as a 'header') and each subheading (as a 'subheader'), in order.
 // Derived from an auto-parse so front-matter, references, etc. are excluded.

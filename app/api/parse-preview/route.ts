@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { parseSections, parseSectionsFromDocx, getHeadingCandidates } from '@/lib/parse-sections';
-import { extractText } from '@/lib/extract';
+import { parseSectionsFromDocx, parseSectionsFromPdf, getHeadingCandidates } from '@/lib/parse-sections';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -39,7 +38,7 @@ export async function POST(req: NextRequest) {
     const parsed =
       ext === '.docx'
         ? await parseSectionsFromDocx(tmpPath)
-        : parseSections(await extractText(tmpPath, 'application/pdf'));
+        : await parseSectionsFromPdf(tmpPath);
 
     const headings: string[] = [];
     if (parsed.introduction) headings.push('Introduction');

@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import path from 'path';
-import { getDb, Figure } from '@/lib/db';
-import { extractText } from '@/lib/extract';
-import { parseSections, parseSectionsFromDocx, applyFigureSectionMatches, SectionOverrides } from '@/lib/parse-sections';
+import { getDb, Figure, ParsedSections } from '@/lib/db';
+import { parseSectionsFromDocx, parseSectionsFromPdf, applyFigureSectionMatches, SectionOverrides } from '@/lib/parse-sections';
 import { sendProofReadyNotification } from '@/lib/email';
 import { extractFiguresFromDocx, extractFiguresFromPdf } from '@/lib/extract-figures';
 
@@ -77,7 +76,7 @@ export async function POST(req: NextRequest) {
     let sectionOverrides: SectionOverrides = {};
     try { if (overridesRaw) sectionOverrides = JSON.parse(overridesRaw); } catch { /* ignore bad JSON */ }
 
-    let parsedSections: Awaited<ReturnType<typeof parseSections>> | null = null;
+    let parsedSections: ParsedSections | null = null;
     if (manuscriptPath && manuscriptFile) {
       const isDocx =
         manuscriptFile.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
@@ -86,8 +85,7 @@ export async function POST(req: NextRequest) {
       if (isDocx) {
         parsedSections = await parseSectionsFromDocx(manuscriptPath, sectionOverrides);
       } else {
-        const raw = await extractText(manuscriptPath, manuscriptFile.type || '');
-        parsedSections = parseSections(raw); // overrides apply to the DOCX structural parse only
+        parsedSections = await parseSectionsFromPdf(manuscriptPath); // recovers tables from the PDF
       }
       referencesRaw = parsedSections.references || null;
       sections = JSON.stringify(parsedSections);
