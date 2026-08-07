@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb, Submission, Figure, ParsedSections, IssueSettings, CoAuthor } from '@/lib/db';
+import { getDb, Submission, Figure, ParsedSections, IssueSettings, CoAuthor, currentIssueSeason } from '@/lib/db';
 import { buildArticleHtml } from '@/lib/article-template';
 import { htmlToPdf } from '@/lib/pdf-gen';
 import { getJournalConfig } from '@/lib/journals';
@@ -43,7 +43,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       sections,
       referencesRaw: row.references_raw || undefined,
       figures,
-      issueSeason: issueSettings?.issue_season ?? process.env.ISSUE_SEASON,
+      issueSeason: issueSettings?.issue_season || process.env.ISSUE_SEASON || currentIssueSeason(),
       issueNumber: issueSettings?.issue_number ?? process.env.ISSUE_NUMBER,
     },
     true,

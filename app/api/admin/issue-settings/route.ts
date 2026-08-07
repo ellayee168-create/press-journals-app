@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb, IssueSettings } from '@/lib/db';
+import { getDb, IssueSettings, currentIssueSeason } from '@/lib/db';
 import { cookies } from 'next/headers';
 import { isValidSessionValue } from '@/lib/admin-auth';
 
@@ -14,6 +14,8 @@ export async function GET() {
   if (!isAuthed()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const db = getDb();
   const row = db.prepare('SELECT * FROM issue_settings WHERE id = 1').get() as IssueSettings;
+  // Pre-fill the current season when none has been set yet.
+  if (row && !row.issue_season) row.issue_season = currentIssueSeason();
   return NextResponse.json(row);
 }
 
@@ -34,7 +36,7 @@ export async function POST(req: NextRequest) {
     WHERE id = 1
   `).run(
     body.issue_number ?? '001',
-    body.issue_season ?? 'Fall 2024',
+    body.issue_season || currentIssueSeason(),
     body.editors_letter ?? '',
     JSON.stringify(body.top_reads ?? []),
     JSON.stringify(body.author_spotlight ?? []),

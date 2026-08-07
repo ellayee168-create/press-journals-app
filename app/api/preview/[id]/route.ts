@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb, Submission, Figure, ParsedSections, CoAuthor, IssueSettings } from '@/lib/db';
+import { getDb, Submission, Figure, ParsedSections, CoAuthor, IssueSettings, currentIssueSeason } from '@/lib/db';
 import { buildArticleHtml } from '@/lib/article-template';
 
 export const runtime = 'nodejs';
@@ -39,7 +39,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     sections,
     referencesRaw: row.references_raw || undefined,
     figures,
-    issueSeason: issueSettings?.issue_season ?? process.env.ISSUE_SEASON,
+    issueSeason: issueSettings?.issue_season || process.env.ISSUE_SEASON || currentIssueSeason(),
     issueNumber: issueSettings?.issue_number ?? process.env.ISSUE_NUMBER,
   });
 

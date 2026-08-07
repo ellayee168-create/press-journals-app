@@ -6,6 +6,14 @@ import fs from 'fs';
 // (e.g. /app/uploads/press-journals.db) so data survives redeploys.
 const DB_PATH = process.env.DB_PATH || path.join(process.cwd(), 'press-journals.db');
 
+// Default issue label from today's date, e.g. "Fall 2026". Used when the editor
+// hasn't set a season in the Issue Builder.
+export function currentIssueSeason(date = new Date()): string {
+  const m = date.getMonth(); // 0 = Jan … 11 = Dec
+  const season = m <= 1 ? 'Winter' : m <= 4 ? 'Spring' : m <= 7 ? 'Summer' : m <= 10 ? 'Fall' : 'Winter';
+  return `${season} ${date.getFullYear()}`;
+}
+
 let db: Database.Database;
 
 export function getDb(): Database.Database {
@@ -24,16 +32,19 @@ function initSchema(db: Database.Database) {
     `ALTER TABLE submissions ADD COLUMN co_authors TEXT NOT NULL DEFAULT '[]'`,
     `ALTER TABLE submissions ADD COLUMN article_type TEXT NOT NULL DEFAULT 'Research Article'`,
     `ALTER TABLE submissions ADD COLUMN section_overrides TEXT NOT NULL DEFAULT '{}'`,
+    // Clear the old hardcoded season default so the dynamic current-season
+    // fallback applies (editors who set their own season are unaffected).
+    `UPDATE issue_settings SET issue_season = '' WHERE issue_season = 'Fall 2024'`,
   ];
   for (const sql of migrations) {
-    try { db.exec(sql); } catch { /* column already exists */ }
+    try { db.exec(sql); } catch { /* already applied / column exists */ }
   }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS issue_settings (
       id INTEGER PRIMARY KEY DEFAULT 1,
       issue_number TEXT NOT NULL DEFAULT '001',
-      issue_season TEXT NOT NULL DEFAULT 'Fall 2024',
+      issue_season TEXT NOT NULL DEFAULT '',
       cover_photo_path TEXT,
       editors_letter TEXT,
       top_reads TEXT NOT NULL DEFAULT '[]',

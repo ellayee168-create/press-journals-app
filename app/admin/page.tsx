@@ -284,7 +284,7 @@ function SubmissionsTab() {
 function IssueBuilderTab() {
   const [settings, setSettings] = useState<IssueSettings>({
     issue_number: '001',
-    issue_season: 'Fall 2024',
+    issue_season: '',
     editors_letter: '',
     top_reads: [],
     author_spotlight: [],

@@ -1,4 +1,4 @@
-import { getDb, Submission, Figure, ParsedSections, IssueSettings, CoAuthor } from './db';
+import { getDb, Submission, Figure, ParsedSections, IssueSettings, CoAuthor, currentIssueSeason } from './db';
 import { buildArticleHtml, ArticleData } from './article-template';
 import { buildCoverHtml, buildFrontMatterHtml, TopRead } from './issue-templates';
 import { htmlToPdf, mergePdfs } from './pdf-gen';
@@ -21,7 +21,7 @@ export async function generateFullIssue(): Promise<Buffer> {
   // 1. Cover page PDF
   const coverHtml = buildCoverHtml({
     issueNumber: settings.issue_number,
-    issueSeason: settings.issue_season,
+    issueSeason: settings.issue_season || currentIssueSeason(),
     coverPhotoPath: settings.cover_photo_path,
     topReads,
     authorSpotlight,
@@ -67,7 +67,7 @@ export async function generateFullIssue(): Promise<Buffer> {
       sections,
       referencesRaw: row.references_raw || undefined,
       figures,
-      issueSeason: settings.issue_season,
+      issueSeason: settings.issue_season || currentIssueSeason(),
       issueNumber: settings.issue_number,
     };
 
