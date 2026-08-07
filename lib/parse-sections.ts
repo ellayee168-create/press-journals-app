@@ -325,17 +325,35 @@ function mergedSegmentsToBlocks(
 
 // ── PDF / plain-text path ─────────────────────────────────────────────────────
 
-// PDFs carry no bold/italic information, so heading detection can ONLY rely on
-// recognised section names (Abstract, Introduction, Methods, Results, Discussion,
-// Conclusion, References, Acknowledgements, …). The old all-caps and title-case
-// heuristics fired on running footers, table cells, and reference fragments — the
-// exact failures beta testers hit. Custom section headings can't be recovered from
-// a PDF; students are told to submit .docx for full structure.
+// PDFs carry no bold/italic info, so a heading can only be guessed from shape.
+// A recognised section name always counts. Otherwise a heading must be a short,
+// standalone, Title-Case line — with hard guards against the things that used to
+// be mis-detected: running footers (stripped earlier), reference lines (heading
+// detection stops once References begins — see parseSections), table cells (tabs),
+// figure/table captions, and page numbers. Anything less certain stays body text.
 function looksLikeHeading(line: string): boolean {
   const t = line.trim();
-  if (!t || t.length > 60) return false;
-  if (t.endsWith('.') || t.endsWith(',') || t.endsWith(';')) return false;
-  return isKnownSectionName(t);
+  if (isKnownSectionName(t)) return true;
+
+  if (!t || t.length > 70) return false;
+  if (/\t/.test(t)) return false;                     // table cell (tab-separated)
+  if (/[.,;:]$/.test(t)) return false;                // ends like a sentence
+  if (/^\d/.test(t)) return false;                    // starts with a number
+  if (/^(table|figure|fig\.)\b/i.test(t)) return false; // figure/table caption
+  if (/[([{]/.test(t)) return false;                  // citations/parentheticals
+
+  const words = t.split(/\s+/);
+  if (words.length < 2 || words.length > 10) return false;
+  if (!/^[A-Z]/.test(t)) return false;
+
+  // Title Case: most words capitalised, few filler words → looks like a heading,
+  // not a sentence that merely happens to start with a capital letter.
+  const fillers = new Set(['the','a','an','in','of','and','to','is','was','are','for','on','at','by','with','from','or','as','that','this']);
+  const lower = words.map(w => w.toLowerCase());
+  const fillerRatio = lower.filter(w => fillers.has(w)).length / words.length;
+  if (fillerRatio >= 0.5) return false;
+  const capRatio = words.filter(w => /^[A-Z0-9]/.test(w)).length / words.length;
+  return capRatio >= 0.6;
 }
 
 // Detect and remove running headers/footers: a short line whose text (ignoring
@@ -368,9 +386,13 @@ export function parseSections(rawText: string): ParsedSections {
   const blocks: Block[] = [];
   let cur: Block = { heading: '', paragraphs: [] };
   let pendingLines: string[] = [];
+  // Once the References section starts, stop detecting headings — reference lines
+  // are Title-Case-ish and would otherwise be mis-read as headings.
+  let inReferences = false;
 
   for (const line of lines) {
-    if (looksLikeHeading(line)) {
+    if (!inReferences && looksLikeHeading(line)) {
+      if (classifyHeading(line.trim()) === 'refs') inReferences = true;
       // Flush pending lines as a paragraph into current block
       const pending = pendingLines.join(' ').trim();
       if (pending) cur.paragraphs.push(pending);
