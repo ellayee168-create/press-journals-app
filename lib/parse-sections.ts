@@ -323,6 +323,21 @@ function parseSectionsFromHtml(html: string, overrides?: SectionOverrides): Pars
     }
   }
 
+  // Attach a "Table N:" / "Table of …" caption paragraph adjacent to a table onto
+  // that table, and mark it consumed so it doesn't also appear in the body text.
+  const escHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  for (let i = 0; i < merged.length; i++) {
+    if (!merged[i].table) continue;
+    for (const j of [i + 1, i - 1]) {
+      const nb = merged[j];
+      if (nb && !nb.table && nb.text && /^(table\s+\d+\s*[:.]|table of\b)/i.test(nb.text.trim())) {
+        merged[i].table += `<p class="table-caption">${escHtml(nb.text.trim())}</p>`;
+        nb.text = ''; // consume the caption so it isn't duplicated in body text
+        break;
+      }
+    }
+  }
+
   return buildResult(mergedSegmentsToBlocks(merged));
 }
 
@@ -354,6 +369,10 @@ function mergedSegmentsToBlocks(
       cur.subsections.push(curSub);
     } else if (seg.table) {
       cur.tables.push(seg.table);
+    } else if (!seg.text || isCaption(seg.text)) {
+      // Drop figure/table caption paragraphs from body text (figures are uploaded
+      // separately; table captions are attached to their table).
+      continue;
     } else {
       const sub = ensureSub();
       sub.text = sub.text ? `${sub.text}\n\n${seg.text}` : seg.text;
