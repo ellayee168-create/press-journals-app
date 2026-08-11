@@ -349,7 +349,7 @@ function looksLikeHeading(line: string): boolean {
   const t = line.trim();
   if (isKnownSectionName(t)) return true;
 
-  if (!t || t.length > 70) return false;
+  if (!t || t.length > 85) return false;
   if (/\t/.test(t)) return false;                     // table cell (tab-separated)
   if (/[.,;:]$/.test(t)) return false;                // ends like a sentence
   if (/^\d/.test(t)) return false;                    // starts with a number
@@ -400,9 +400,16 @@ function endsSentence(line: string): boolean {
 // with a year ("American Cancer Society. (2023)"). Continuation/title lines don't.
 function looksLikeRefStart(line: string): boolean {
   const t = line.trim();
-  if (/^[A-Z][A-Za-z.'’’-]+,\s+[A-Z]\.?/.test(t)) return true;             // "Bates, S."
-  if (/^[A-Z][\w&'’.’-]*(\s+[A-Z&][\w&'’.’-]*){0,6}\.?\s*\(\d{4}/.test(t)) return true; // "American Cancer Society. (2023"
+  if (/^[A-Z][A-Za-z.'’-]+,\s+[A-Z]\.?/.test(t)) return true;             // "Bates, S." / "Anand, U."
+  if (/^[A-Z][\w&'’.-]*(\s+[A-Z&][\w&'’.-]*){0,6}\.?\s*\(\d{4}/.test(t)) return true; // "American Cancer Society. (2023"
   return false;
+}
+
+// Figure/table caption lines that shouldn't appear in the body text (figures are
+// uploaded separately; tables are recovered on their own).
+function isCaption(text: string): boolean {
+  const t = text.trim();
+  return /^(figure|table|fig\.?)\s*\d*\s*[:.]/i.test(t) || /^table of\b/i.test(t);
 }
 
 export function parseSections(rawText: string): ParsedSections {
@@ -412,12 +419,15 @@ export function parseSections(rawText: string): ParsedSections {
 
   const lines = stripRunningHeadersFooters(rawText)
     .split('\n')
-    .map(l => l.trimEnd())
-    // Drop pdf-parse page-break markers like "-- 3 of 23 --".
-    .filter(l => !/^--\s*\d+\s+of\s+\d+\s*--$/i.test(l.trim()));
+    .map(l => l.trim())
+    // Drop pdf-parse page-break markers and blank lines. Blank lines in a PDF are
+    // page-break/footer artifacts, NOT paragraph boundaries — treating them as
+    // breaks split paragraphs at every page. Paragraph breaks come from the
+    // short-sentence-ending-line signal instead.
+    .filter(l => l !== '' && !/^--\s*\d+\s+of\s+\d+\s*--$/i.test(l));
 
   // Estimate the full column width so short last-lines can be told from wraps.
-  const lens = lines.map(l => l.trim().length).filter(n => n > 0).sort((a, b) => a - b);
+  const lens = lines.map(l => l.length).filter(n => n > 0).sort((a, b) => a - b);
   const fullWidth = lens.length ? lens[Math.floor(lens.length * 0.9)] : 80;
   const shortLineMax = fullWidth * 0.85;
 
@@ -431,7 +441,7 @@ export function parseSections(rawText: string): ParsedSections {
 
   const flushPara = () => {
     const t = pendingLines.join(' ').replace(/\s+/g, ' ').trim();
-    if (t) cur.paragraphs.push(t);
+    if (t && !isCaption(t)) cur.paragraphs.push(t); // drop figure/table captions
     pendingLines = [];
   };
   const flushRef = () => {
@@ -453,14 +463,16 @@ export function parseSections(rawText: string): ParsedSections {
 
     if (inReferences) {
       if (t === '') continue;
-      // New entry when the previous one already has its (year) and this line
-      // starts like an author/organisation.
-      if (refAccum && /\(\d{4}[a-z]?\)/.test(refAccum) && looksLikeRefStart(t)) flushRef();
+      // New entry when the previous one already has its (year …) — matches
+      // "(2021)" and date forms like "(2023, June 15)" — and this line starts
+      // like an author/organisation.
+      if (refAccum && /\(\d{4}/.test(refAccum) && looksLikeRefStart(t)) flushRef();
       refAccum = refAccum ? `${refAccum} ${t}` : t;
       continue;
     }
 
-    if (t === '') { flushPara(); continue; }
+    // A caption line starts its own paragraph so isCaption() can drop it cleanly.
+    if (isCaption(t)) flushPara();
     pendingLines.push(t);
     // Short sentence-ending line → paragraph break.
     if (endsSentence(t) && t.length < shortLineMax) flushPara();
