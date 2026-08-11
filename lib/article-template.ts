@@ -369,6 +369,7 @@ table.doc-table th, table.doc-table td {
 }
 table.doc-table th { background: #f0f0f0; font-weight: bold; }
 table.doc-table tr:first-child td { background: #f0f0f0; font-weight: bold; }
+.table-caption { font-size: 9pt; line-height: 1.4; color: #333; margin-top: 5pt; text-align: left; }
 
 /* ── References ──────────────────────────────── */
 .refs-block {

@@ -85,6 +85,26 @@ export async function parseSectionsFromDocx(docxPath: string, overrides?: Sectio
   return parseSectionsFromHtml(html, overrides);
 }
 
+// Pull "Table N: …" caption paragraphs from the text so each recovered table can
+// carry its caption. Returned in document order to pair with the tables.
+function extractTableCaptions(text: string): string[] {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const caps: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!/^table\s+\d+\s*[:.]/i.test(lines[i])) continue;
+    let cap = lines[i];
+    let j = i + 1;
+    // Accumulate wrapped caption lines until one ends a sentence.
+    while (j < lines.length && !/[.!?]\)?$/.test(lines[j - 1]) && !/^(table|figure)\s+\d/i.test(lines[j])) {
+      cap += ' ' + lines[j];
+      j++;
+    }
+    caps.push(cap.replace(/\s+/g, ' ').trim());
+    i = j - 1;
+  }
+  return caps;
+}
+
 // PDF path: parse the text, and recover real tables from the PDF grid so they
 // render as tables instead of garbled body text. Table rows (tab-separated) are
 // removed from the text so the same content isn't duplicated as prose.
@@ -94,7 +114,13 @@ export async function parseSectionsFromPdf(pdfPath: string): Promise<ParsedSecti
   const textNoTables = text.split('\n').filter(l => !/\t[^\t]*\t/.test(l)).join('\n');
   const parsed = parseSections(textNoTables);
   if (tables.length && !parsed.raw) {
-    parsed.tables = [...(parsed.tables ?? []), ...tables];
+    const captions = extractTableCaptions(text);
+    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // Attach each table's caption beneath it (paired in document order).
+    const withCaptions = tables.map((t, i) =>
+      captions[i] ? `${t}<p class="table-caption">${esc(captions[i])}</p>` : t,
+    );
+    parsed.tables = [...(parsed.tables ?? []), ...withCaptions];
   }
   return parsed;
 }
@@ -396,12 +422,16 @@ function endsSentence(line: string): boolean {
   return /[.!?]["'”’)\]]?$/.test(line.trim());
 }
 
-// APA reference entries start with an author ("Al-Amrani, S.,") or an organisation
-// with a year ("American Cancer Society. (2023)"). Continuation/title lines don't.
+// APA reference entries start with an author or an organisation with a year;
+// continuation/title lines don't. Unicode-aware so accented names (Huérfano,
+// Pérez) are recognised.
 function looksLikeRefStart(line: string): boolean {
   const t = line.trim();
-  if (/^[A-Z][A-Za-z.'’-]+,\s+[A-Z]\.?/.test(t)) return true;             // "Bates, S." / "Anand, U."
-  if (/^[A-Z][\w&'’.-]*(\s+[A-Z&][\w&'’.-]*){0,6}\.?\s*\(\d{4}/.test(t)) return true; // "American Cancer Society. (2023"
+  const U = 'A-ZÀ-ÖØ-Þ';                    // uppercase incl. Latin-1 accents
+  const L = "A-Za-zÀ-ÖØ-öø-ÿ.'’\\-";        // any letter incl. accents + name punctuation (hyphen escaped)
+  if (new RegExp(`^[${U}][${L}]+,\\s+[${U}]\\.?`).test(t)) return true;                        // "Al-Amrani, S." / "Huérfano-Maldonado, Y."
+  if (new RegExp(`^[${U}][${L}]+\\s+[${U}][${L}]+,\\s+[${U}]`).test(t)) return true;            // "Yoleidy Huérfano-Maldonado, Mora, M."
+  if (new RegExp(`^[${U}][${L}&]*(\\s+[${U}&][${L}&]*){0,6}\\.?\\s*\\(\\d{4}`).test(t)) return true; // "American Cancer Society. (2023"
   return false;
 }
 

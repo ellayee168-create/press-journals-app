@@ -62,8 +62,14 @@ export async function POST(req: NextRequest) {
     let manuscriptPath: string | null = null;
     const manuscriptFile = formData.get('manuscript') as File | null;
     if (manuscriptFile && manuscriptFile.size > 0) {
-      const ext = path.extname(manuscriptFile.name) || '.pdf';
-      const dest = path.join(uploadDir, `manuscript${ext}`);
+      // Manuscripts must be Word .docx — PDFs can't preserve structure reliably.
+      if (!manuscriptFile.name.toLowerCase().endsWith('.docx')) {
+        return NextResponse.json(
+          { error: 'The manuscript must be a Word document (.docx). Please export from Google Docs or Word and re-upload.' },
+          { status: 400 },
+        );
+      }
+      const dest = path.join(uploadDir, 'manuscript.docx');
       fs.writeFileSync(dest, Buffer.from(await manuscriptFile.arrayBuffer()));
       manuscriptPath = dest;
     }

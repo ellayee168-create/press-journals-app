@@ -316,11 +316,17 @@ function Step3({ file, onChange, onDetected, choices, onChoices }: {
   }
 
   async function selectFile(f: File | null) {
-    onChange(f);
     setPreview(null);
     setCheckError('');
     onDetected([]);
     onChoices({});
+    // Require a Word document — PDFs lose the structure the system needs.
+    if (f && !f.name.toLowerCase().endsWith('.docx')) {
+      onChange(null);
+      setCheckError('Please upload a Word document (.docx). From Google Docs: File → Download → Microsoft Word (.docx). PDFs can’t be formatted reliably.');
+      return;
+    }
+    onChange(f);
     if (!f) return;
     // Dry-run parse so the student sees what was detected BEFORE submitting.
     setChecking(true);
@@ -348,8 +354,9 @@ function Step3({ file, onChange, onDetected, choices, onChoices }: {
   return (
     <div className="space-y-4">
       <p className="text-sm text-gray-600">
-        Upload your manuscript as a <strong>Word (.docx)</strong> file (recommended) or PDF.
+        Upload your manuscript as a <strong>Word (.docx)</strong> file.
         The system extracts your text and detects section headings automatically.
+        <span className="text-gray-500"> (From Google Docs: File → Download → Microsoft Word.)</span>
       </p>
       <div className="bg-[#f0fafd] border border-[#c8e8f5] rounded-lg p-3 text-xs text-gray-600 space-y-1">
         <p className="font-semibold text-[#1B3A5C]">Formatting tips:</p>
@@ -379,11 +386,11 @@ function Step3({ file, onChange, onDetected, choices, onChoices }: {
         ) : (
           <>
             <p className="text-sm text-gray-600">Drag & drop or <span className="text-[#2BA4C8] font-semibold">browse</span></p>
-            <p className="text-xs text-gray-400 mt-1">PDF or DOCX · max 25 MB</p>
+            <p className="text-xs text-gray-400 mt-1">Word .docx only · max 25 MB</p>
           </>
         )}
         <input ref={inputRef} type="file"
-          accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) selectFile(f); }} />
       </div>
 
