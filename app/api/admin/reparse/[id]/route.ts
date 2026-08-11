@@ -30,7 +30,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (isDocx) {
     parsed = await parseSectionsFromDocx(manuscriptPath, overrides);
   } else {
-    parsed = await parseSectionsFromPdf(manuscriptPath);
+    parsed = await parseSectionsFromPdf(manuscriptPath, overrides);
   }
 
   const referencesRaw = parsed.references ?? null;

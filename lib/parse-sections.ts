@@ -108,11 +108,11 @@ function extractTableCaptions(text: string): string[] {
 // PDF path: parse the text, and recover real tables from the PDF grid so they
 // render as tables instead of garbled body text. Table rows (tab-separated) are
 // removed from the text so the same content isn't duplicated as prose.
-export async function parseSectionsFromPdf(pdfPath: string): Promise<ParsedSections> {
+export async function parseSectionsFromPdf(pdfPath: string, overrides?: SectionOverrides): Promise<ParsedSections> {
   const { extractPdfContent } = await import('./extract');
   const { text, tables } = await extractPdfContent(pdfPath);
   const textNoTables = text.split('\n').filter(l => !/\t[^\t]*\t/.test(l)).join('\n');
-  const parsed = parseSections(textNoTables);
+  const parsed = parseSections(textNoTables, overrides);
   if (tables.length && !parsed.raw) {
     const captions = extractTableCaptions(text);
     const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -461,7 +461,7 @@ function isCaption(text: string): boolean {
   return /^(figure|table|fig\.?)\s*\d*\s*[:.]/i.test(t) || /^table of\b/i.test(t);
 }
 
-export function parseSections(rawText: string): ParsedSections {
+export function parseSections(rawText: string, overrides?: SectionOverrides): ParsedSections {
   if (!rawText || rawText.trim().length < 50) {
     return { body: [], raw: rawText ?? '' };
   }
@@ -541,12 +541,42 @@ export function parseSections(rawText: string): ParsedSections {
   }
 
   // Adapt the flat {heading, paragraphs} blocks to the shared RawBlock shape.
-  const rawBlocks: RawBlock[] = blocks.map(b => ({
+  let rawBlocks: RawBlock[] = blocks.map(b => ({
     heading: b.heading,
     subsections: [{ text: b.paragraphs.join('\n\n') }],
     tables: [],
   }));
+  // Apply the student's/editor's heading re-classification (same as the DOCX path).
+  if (overrides && Object.keys(overrides).length) {
+    rawBlocks = applyBlockOverrides(rawBlocks, overrides);
+  }
   return buildResult(rawBlocks);
+}
+
+// Re-classify detected headings for the flat (PDF) block list: 'none' demotes a
+// heading into the previous section's body text; 'subheader' nests it as a
+// subsection of the previous section; 'header' keeps it. Mirrors the DOCX path
+// so a PDF submission honours the header/subheader/remove table too.
+function applyBlockOverrides(rawBlocks: RawBlock[], overrides: SectionOverrides): RawBlock[] {
+  const normMap: SectionOverrides = {};
+  for (const [k, v] of Object.entries(overrides)) normMap[normalise(k)] = v;
+  const out: RawBlock[] = [];
+  for (const b of rawBlocks) {
+    const choice = b.heading ? normMap[normalise(b.heading)] : undefined;
+    const prev = out[out.length - 1];
+    if (choice === 'none' && prev) {
+      const text = [b.heading, blockText(b)].filter(Boolean).join('\n\n');
+      const sub = prev.subsections[prev.subsections.length - 1] ?? (prev.subsections.push({ text: '' }), prev.subsections[prev.subsections.length - 1]);
+      sub.text = sub.text ? `${sub.text}\n\n${text}` : text;
+      prev.tables.push(...b.tables);
+    } else if (choice === 'subheader' && prev) {
+      prev.subsections.push({ subheading: b.heading, text: blockText(b) });
+      prev.tables.push(...b.tables);
+    } else {
+      out.push(b);
+    }
+  }
+  return out;
 }
 
 // ── Shared result builder ─────────────────────────────────────────────────────

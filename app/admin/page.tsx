@@ -124,19 +124,21 @@ function SubmissionsTab() {
 
   const flagged = submissions.filter(s => s.parse_ok === false);
 
-  async function reparseAllFlagged() {
-    if (!confirm(`Re-parse ${flagged.length} flagged submission(s)? This re-reads each stored manuscript with the latest parser.`)) return;
+  async function reparseSet(targets: Submission[], label: string) {
+    if (!confirm(`Re-parse ${targets.length} ${label} submission(s)? This re-reads each stored manuscript with the latest parser and applies any saved heading choices.`)) return;
     setReparsingAll(true);
     setReparseAllMsg('');
     let ok = 0, failed = 0;
-    for (const s of flagged) {
-      const res = await fetch(`/api/admin/reparse/${s.id}`, { method: 'POST' });
-      if (res.ok) ok++; else failed++;
+    for (const s of targets) {
+      const res = await fetch(`/api/admin/reparse/${s.id}`, { method: 'POST' }).catch(() => null);
+      if (res && res.ok) ok++; else failed++;
     }
     await fetchSubmissions();
     setReparsingAll(false);
-    setReparseAllMsg(`Re-parsed ${ok} submission(s)` + (failed ? `, ${failed} failed (open them individually to see why)` : ''));
+    setReparseAllMsg(`Re-parsed ${ok} submission(s)` + (failed ? `, ${failed} skipped (no manuscript, or an error)` : ''));
   }
+  const reparseAllFlagged = () => reparseSet(flagged, 'flagged');
+  const reparseAll = () => reparseSet(submissions, 'ALL');
 
   const visible = submissions.filter(s => {
     if (statusFilter !== 'all' && s.status !== statusFilter) return false;
@@ -179,6 +181,16 @@ function SubmissionsTab() {
               title="Re-run the manuscript parser on every submission flagged with ⚠ check parse"
             >
               {reparsingAll ? 'Re-parsing…' : `↺ Re-parse ${flagged.length} flagged`}
+            </button>
+          )}
+          {submissions.length > 0 && (
+            <button
+              onClick={reparseAll}
+              disabled={reparsingAll}
+              className="px-4 py-2 border border-[#2BA4C8] text-[#2BA4C8] rounded-lg text-sm font-semibold hover:bg-[#f0fafd] disabled:opacity-50"
+              title="Re-run the parser on every submission — use this after a formatting update goes live"
+            >
+              {reparsingAll ? 'Re-parsing…' : `↺ Re-parse all (${submissions.length})`}
             </button>
           )}
           <button

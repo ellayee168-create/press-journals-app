@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
       if (isDocx) {
         parsedSections = await parseSectionsFromDocx(manuscriptPath, sectionOverrides);
       } else {
-        parsedSections = await parseSectionsFromPdf(manuscriptPath); // recovers tables from the PDF
+        parsedSections = await parseSectionsFromPdf(manuscriptPath, sectionOverrides); // recovers tables; honours heading choices
       }
       referencesRaw = parsedSections.references || null;
       sections = JSON.stringify(parsedSections);
