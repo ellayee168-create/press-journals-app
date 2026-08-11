@@ -389,42 +389,84 @@ function stripRunningHeadersFooters(text: string): string {
   return lines.filter(l => !repeated.has(norm(l))).join('\n');
 }
 
+// A PDF has no paragraph markers, so a paragraph break is inferred: the current
+// line ends a sentence AND is clearly shorter than a full text line (i.e. it's a
+// last line, not a mid-paragraph wrap).
+function endsSentence(line: string): boolean {
+  return /[.!?]["'”’)\]]?$/.test(line.trim());
+}
+
+// APA reference entries start with an author ("Al-Amrani, S.,") or an organisation
+// with a year ("American Cancer Society. (2023)"). Continuation/title lines don't.
+function looksLikeRefStart(line: string): boolean {
+  const t = line.trim();
+  if (/^[A-Z][A-Za-z.'’’-]+,\s+[A-Z]\.?/.test(t)) return true;             // "Bates, S."
+  if (/^[A-Z][\w&'’.’-]*(\s+[A-Z&][\w&'’.’-]*){0,6}\.?\s*\(\d{4}/.test(t)) return true; // "American Cancer Society. (2023"
+  return false;
+}
+
 export function parseSections(rawText: string): ParsedSections {
   if (!rawText || rawText.trim().length < 50) {
     return { body: [], raw: rawText ?? '' };
   }
 
-  const lines = stripRunningHeadersFooters(rawText).split('\n').map(l => l.trimEnd());
+  const lines = stripRunningHeadersFooters(rawText)
+    .split('\n')
+    .map(l => l.trimEnd())
+    // Drop pdf-parse page-break markers like "-- 3 of 23 --".
+    .filter(l => !/^--\s*\d+\s+of\s+\d+\s*--$/i.test(l.trim()));
+
+  // Estimate the full column width so short last-lines can be told from wraps.
+  const lens = lines.map(l => l.trim().length).filter(n => n > 0).sort((a, b) => a - b);
+  const fullWidth = lens.length ? lens[Math.floor(lens.length * 0.9)] : 80;
+  const shortLineMax = fullWidth * 0.85;
 
   interface Block { heading: string; paragraphs: string[] }
   const blocks: Block[] = [];
   let cur: Block = { heading: '', paragraphs: [] };
   let pendingLines: string[] = [];
-  // Once the References section starts, stop detecting headings — reference lines
-  // are Title-Case-ish and would otherwise be mis-read as headings.
+  let refAccum = '';       // the reference entry currently being assembled
+  // Once References starts, stop heading detection and switch to entry-splitting.
   let inReferences = false;
 
+  const flushPara = () => {
+    const t = pendingLines.join(' ').replace(/\s+/g, ' ').trim();
+    if (t) cur.paragraphs.push(t);
+    pendingLines = [];
+  };
+  const flushRef = () => {
+    const t = refAccum.replace(/\s+/g, ' ').trim();
+    if (t) cur.paragraphs.push(t);
+    refAccum = '';
+  };
+
   for (const line of lines) {
+    const t = line.trim();
+
     if (!inReferences && looksLikeHeading(line)) {
-      if (classifyHeading(line.trim()) === 'refs') inReferences = true;
-      // Flush pending lines as a paragraph into current block
-      const pending = pendingLines.join(' ').trim();
-      if (pending) cur.paragraphs.push(pending);
-      pendingLines = [];
-      // Save current block
+      flushPara();
       if (cur.heading || cur.paragraphs.length > 0) blocks.push(cur);
-      cur = { heading: line.trim(), paragraphs: [] };
-    } else if (line.trim() === '') {
-      // Blank line → flush accumulated lines as one paragraph
-      const pending = pendingLines.join(' ').trim();
-      if (pending) cur.paragraphs.push(pending);
-      pendingLines = [];
-    } else {
-      pendingLines.push(line.trim());
+      cur = { heading: t, paragraphs: [] };
+      if (classifyHeading(t) === 'refs') inReferences = true;
+      continue;
     }
+
+    if (inReferences) {
+      if (t === '') continue;
+      // New entry when the previous one already has its (year) and this line
+      // starts like an author/organisation.
+      if (refAccum && /\(\d{4}[a-z]?\)/.test(refAccum) && looksLikeRefStart(t)) flushRef();
+      refAccum = refAccum ? `${refAccum} ${t}` : t;
+      continue;
+    }
+
+    if (t === '') { flushPara(); continue; }
+    pendingLines.push(t);
+    // Short sentence-ending line → paragraph break.
+    if (endsSentence(t) && t.length < shortLineMax) flushPara();
   }
-  const pending = pendingLines.join(' ').trim();
-  if (pending) cur.paragraphs.push(pending);
+  flushPara();
+  flushRef();
   if (cur.heading || cur.paragraphs.length > 0) blocks.push(cur);
 
   const knownCount = blocks.filter(b => {
