@@ -32,8 +32,8 @@ export default function FormattingGuide() {
           </p>
         </div>
 
-        <Rule title="1. Submit a Word document (.docx), not a PDF">
-          <p>Save your manuscript as a <strong>.docx</strong> file. From Google Docs, use <em>File → Download → Microsoft Word (.docx)</em>. Word files come through far more reliably than PDFs.</p>
+        <Rule title="1. Submit a Word document (.docx) — PDFs are not accepted">
+          <p>Save your manuscript as a <strong>.docx</strong> file. From Google Docs, use <em>File → Download → Microsoft Word (.docx)</em>. Word is the only manuscript format the system accepts — PDFs and other file types will be rejected at upload.</p>
         </Rule>
 
         <Rule title="2. Make main section headings bold">

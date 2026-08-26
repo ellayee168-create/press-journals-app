@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { parseSectionsFromDocx, parseSectionsFromPdf, getHeadingCandidates } from '@/lib/parse-sections';
+import { parseSectionsFromDocx, getHeadingCandidates } from '@/lib/parse-sections';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,18 +27,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const ext = path.extname(file.name).toLowerCase() || '.pdf';
-    if (ext !== '.pdf' && ext !== '.docx') {
-      return NextResponse.json({ error: 'Please upload a PDF or Word (.docx) file.' }, { status: 400 });
+    if (path.extname(file.name).toLowerCase() !== '.docx') {
+      return NextResponse.json(
+        { error: 'Please upload a Word document (.docx). From Google Docs: File → Download → Microsoft Word (.docx).' },
+        { status: 400 },
+      );
     }
 
-    tmpPath = path.join(os.tmpdir(), `press-preview-${Date.now()}${ext}`);
+    tmpPath = path.join(os.tmpdir(), `press-preview-${Date.now()}.docx`);
     fs.writeFileSync(tmpPath, Buffer.from(await file.arrayBuffer()));
 
-    const parsed =
-      ext === '.docx'
-        ? await parseSectionsFromDocx(tmpPath)
-        : await parseSectionsFromPdf(tmpPath);
+    const parsed = await parseSectionsFromDocx(tmpPath);
 
     const headings: string[] = [];
     if (parsed.introduction) headings.push('Introduction');
@@ -59,15 +58,9 @@ export async function POST(req: NextRequest) {
       (parsed.conclusion?.length ?? 0);
 
     const warnings: string[] = [];
-    // PDFs lose tables, custom headings, and clean references. Steer to .docx.
-    if (ext === '.pdf') {
-      warnings.push(
-        'You uploaded a PDF. Tables, custom section headings, and reference lists often don’t carry over correctly from a PDF. For best results, upload a Word (.docx) file instead.',
-      );
-    }
     if (totalChars < 500) {
       warnings.push(
-        'Very little text could be read from this file. If it is a scanned PDF or an image-based document, please upload a Word (.docx) version instead.',
+        'Very little text could be read from this file. If your text is inside images or text boxes, move it into the document body and re-upload.',
       );
     } else if (parsed.raw) {
       warnings.push(
@@ -84,7 +77,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error('Parse preview failed:', err);
     return NextResponse.json(
-      { error: 'Could not read this file. Please check it opens correctly, or try a .docx version.' },
+      { error: 'Could not read this file. Please check that it opens correctly in Word, then re-upload.' },
       { status: 422 },
     );
   } finally {
