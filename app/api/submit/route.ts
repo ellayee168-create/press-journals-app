@@ -52,6 +52,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Manuscripts must be Word .docx — PDFs can't preserve structure reliably.
+    // Checked before anything is written so a rejected upload leaves nothing behind.
+    const manuscriptFile = formData.get('manuscript') as File | null;
+    if (manuscriptFile && manuscriptFile.size > 0 &&
+        path.extname(manuscriptFile.name).toLowerCase() !== '.docx') {
+      return NextResponse.json(
+        { error: 'The manuscript must be a Word document (.docx). Please export from Google Docs or Word and re-upload.' },
+        { status: 400 },
+      );
+    }
+
     const id = uuidv4();
     const uploadDir = path.join(process.cwd(), 'uploads', id);
     fs.mkdirSync(uploadDir, { recursive: true });
@@ -60,15 +71,7 @@ export async function POST(req: NextRequest) {
 
     // Save manuscript
     let manuscriptPath: string | null = null;
-    const manuscriptFile = formData.get('manuscript') as File | null;
     if (manuscriptFile && manuscriptFile.size > 0) {
-      // Manuscripts must be Word .docx — PDFs can't preserve structure reliably.
-      if (path.extname(manuscriptFile.name).toLowerCase() !== '.docx') {
-        return NextResponse.json(
-          { error: 'The manuscript must be a Word document (.docx). Please export from Google Docs or Word and re-upload.' },
-          { status: 400 },
-        );
-      }
       const dest = path.join(uploadDir, 'manuscript.docx');
       fs.writeFileSync(dest, Buffer.from(await manuscriptFile.arrayBuffer()));
       manuscriptPath = dest;
