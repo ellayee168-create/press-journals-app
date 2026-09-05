@@ -3,30 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 
-interface Figure {
-  path: string;
-  caption: string;
-  number: number;
-  filename: string;
-  sectionIndex?: number;
-  sectionName?: string;
-  sectionMatchStatus?: 'matched' | 'unmatched' | 'ambiguous';
-  sectionMatchedHeading?: string;
-}
-
-interface Section {
-  heading: string;
-  subsections: { subheading?: string; text: string }[];
-}
-
-interface ParsedSections {
-  introduction?: string;
-  body: Section[];
-  conclusion?: string;
-  acknowledgments?: string;
-  references?: string;
-  raw?: string;
-}
+import { placementTargetsFor, dropFloatsDuplicatingTables, parseCaptionLabel } from '@/lib/article-layout';
+import type { Figure, ParsedSections } from '@/lib/db';
 
 interface Submission {
   id: string;
@@ -101,14 +79,14 @@ function fromDraft(d: SectionDraft, original: ParsedSections | null): ParsedSect
   };
 }
 
+// The "Appears with" list must be exactly the renderer's placement targets —
+// sections AND their subheadings — so the index the editor picks means the same
+// thing in the proof. Subheadings are indented so the hierarchy stays readable.
 function buildSectionLabels(sections: ParsedSections | null): string[] {
   if (!sections) return ['Introduction'];
-  const labels: string[] = [];
-  if (sections.introduction) labels.push('Introduction');
-  for (const s of sections.body) labels.push(s.heading);
-  if (sections.conclusion) labels.push('Conclusion');
-  if (labels.length === 0) labels.push('Beginning');
-  return labels;
+  const labels = placementTargetsFor(sections)
+    .map(t => (t.level === 2 ? `    ↳ ${t.label}` : t.label));
+  return labels.length ? labels : ['Beginning'];
 }
 
 export default function AdminSubmissionPage() {
@@ -177,6 +155,13 @@ export default function AdminSubmissionPage() {
     } else {
       alert('Saving figure placements failed — please try again.');
     }
+  }
+
+  function setFigKeepDuplicate(figNumber: number, keepDespiteDuplicate: boolean) {
+    setFigures(figs => figs.map(f =>
+      f.number === figNumber ? { ...f, keepDespiteDuplicate } : f
+    ));
+    setFigSaved(false);
   }
 
   function setFigSection(figNumber: number, sectionIndex: number | undefined) {
@@ -262,6 +247,10 @@ export default function AdminSubmissionPage() {
 
   const keywords: string[] = JSON.parse(sub.keywords || '[]');
   const sectionLabels = buildSectionLabels(sections);
+  // Floats the proof will skip because the manuscript's own table is used instead.
+  const skipped = sections
+    ? new Set(dropFloatsDuplicatingTables(figures, sections).droppedFigures.map(f => f.number))
+    : new Set<number>();
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -563,6 +552,19 @@ export default function AdminSubmissionPage() {
                           )}
                         </div>
                       </div>
+                    )}
+
+                    {skipped.has(fig.number) && (
+                      <label className="mb-2 flex items-start gap-1.5 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 cursor-pointer">
+                        <input type="checkbox" checked={!!fig.keepDespiteDuplicate}
+                          onChange={e => setFigKeepDuplicate(fig.number, e.target.checked)}
+                          className="mt-0.5 w-3 h-3 accent-[#2BA4C8] flex-shrink-0" />
+                        <span>
+                          <strong>Skipped</strong> — the manuscript already contains{' '}
+                          {parseCaptionLabel(fig.caption)?.label ?? 'this table'}, which is typeset
+                          in place. Tick to print this image as well.
+                        </span>
+                      </label>
                     )}
 
                     <label className="text-xs text-gray-500 font-medium block mb-1">

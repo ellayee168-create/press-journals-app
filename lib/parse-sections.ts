@@ -1,4 +1,5 @@
 import { ParsedSections } from './db';
+import { placementTargetsFor } from './article-layout';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -35,7 +36,20 @@ const KNOWN_SKIP    = new Set([
 const KNOWN_FIGS    = new Set([
   'figure legend', 'figure legends', 'figures', 'figure captions', 'figure caption',
   'table legend', 'table legends', 'list of figures', 'list of tables', 'tables',
+  'supplemental material legends', 'supplementary material legends',
+  'supplemental figure legends', 'supplementary figure legends',
+  'supplemental table legends', 'supplementary table legends',
+  'supplemental legends', 'supplementary legends',
 ]);
+
+// Any "<something> legends/captions" heading is a legend block, whatever the
+// author called it ("Supplemental Material Legends", "Extended Data Legends").
+// Its contents duplicate the float captions the form already collects, so it is
+// dropped rather than printed as a body section.
+function isLegendHeading(normalised: string): boolean {
+  return /\b(legends?|captions?)$/.test(normalised) &&
+    /\b(figure|table|fig|supplement(al|ary)?|material|data|exhibit|panel|scheme|chart)\b/.test(normalised);
+}
 // Markers that reliably indicate the real article body has begun. Everything before
 // the first one (title, author line, affiliations, correspondence) is front-matter
 // the submission form already collects, so it gets dropped.
@@ -60,7 +74,7 @@ function normalise(s: string) {
 function isKnownSectionName(text: string): boolean {
   const n = normalise(text);
   return (
-    KNOWN_SKIP.has(n) || KNOWN_FIGS.has(n) || KNOWN_INTRO.has(n) ||
+    KNOWN_SKIP.has(n) || KNOWN_FIGS.has(n) || isLegendHeading(n) || KNOWN_INTRO.has(n) ||
     KNOWN_METHODS.has(n) || KNOWN_RESULTS.has(n) || KNOWN_DISCUSS.has(n) ||
     KNOWN_CONCL.has(n) || KNOWN_ACK.has(n) || KNOWN_REFS.has(n)
   );
@@ -70,6 +84,7 @@ function classifyHeading(raw: string): 'skip' | 'intro' | 'conclusion' | 'ack' |
   const n = normalise(raw);
   if (KNOWN_SKIP.has(n))   return 'skip';
   if (KNOWN_FIGS.has(n))   return 'skip';
+  if (isLegendHeading(n))  return 'skip';
   if (KNOWN_INTRO.has(n))  return 'intro';
   if (KNOWN_CONCL.has(n))  return 'conclusion';
   if (KNOWN_ACK.has(n))    return 'ack';
@@ -323,28 +338,132 @@ function parseSectionsFromHtml(html: string, overrides?: SectionOverrides): Pars
     }
   }
 
-  // Attach a "Table N:" / "Table of …" caption paragraph adjacent to a table onto
-  // that table, and mark it consumed so it doesn't also appear in the body text.
-  const escHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  for (let i = 0; i < merged.length; i++) {
-    if (!merged[i].table) continue;
-    for (const j of [i + 1, i - 1]) {
-      const nb = merged[j];
-      if (nb && !nb.table && nb.text && /^(table\s+\d+\s*[:.]|table of\b)/i.test(nb.text.trim())) {
-        merged[i].table += `<p class="table-caption">${escHtml(nb.text.trim())}</p>`;
-        nb.text = ''; // consume the caption so it isn't duplicated in body text
-        break;
+  groupTableFragments(merged);
+  attachTableCaptions(merged);
+
+  return buildResult(mergedSegmentsToBlocks(merged));
+}
+
+// ── Table grouping & caption pairing (DOCX path) ─────────────────────────────
+
+type TableSeg = { level: 0 | 1 | 2; text: string; table?: string };
+
+const escHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/** Text of a table's first cell — the signal that a fragment repeats a header row. */
+function firstCellText(tableHtml: string): string {
+  const m = /<t[dh]>([\s\S]*?)<\/t[dh]>/i.exec(tableHtml);
+  return m ? m[1].replace(/\s+/g, ' ').trim().toLowerCase() : '';
+}
+
+/** Rows of a table, so two fragments can be spliced into one <table>. */
+function tableRows(tableHtml: string): string {
+  const m = /<table[^>]*>([\s\S]*?)<\/table>/i.exec(tableHtml);
+  return m ? m[1] : '';
+}
+
+/** Row count and the table's usual number of columns — its "shape". */
+function tableShape(tableHtml: string): { rows: number; cols: number } {
+  const widths = Array.from(tableHtml.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi))
+    .map(m => Array.from(m[1].matchAll(/<t[dh][^>]*>/gi)).length);
+  if (widths.length === 0) return { rows: 0, cols: 0 };
+  const freq = new Map<number, number>();
+  for (const w of widths) freq.set(w, (freq.get(w) ?? 0) + 1);
+  // Most common width, ties broken toward the wider row.
+  const cols = Array.from(freq.entries()).sort((a, b) => b[1] - a[1] || b[0] - a[0])[0][0];
+  return { rows: widths.length, cols };
+}
+
+/**
+ * A long table split across several Word tables arrives as consecutive table
+ * segments with nothing between them. Fuse those back into one so the proof
+ * shows one table with one caption instead of a stack of anonymous fragments —
+ * while keeping genuinely separate back-to-back tables apart.
+ *
+ * A fragment continues the open table when it has the same column count. Two
+ * signals start a new one instead:
+ *   • a different column count — a different table, not a continuation;
+ *   • a first cell repeating the open table's first cell — Word's repeated
+ *     header row, i.e. the author started a fresh table with the same stub.
+ * A one-or-two-row opener is treated as a title band whose shape is unknown, so
+ * the fragment that follows sets the group's column count rather than splitting.
+ */
+function groupTableFragments(segs: TableSeg[]): void {
+  let openIdx = -1;    // fragment currently accumulating
+  let openHead = '';   // its first-cell text
+  let openCols = 0;    // its column count; 0 = not yet known (title band)
+
+  const startGroup = (i: number, head: string, shape: { rows: number; cols: number }) => {
+    openIdx = i;
+    openHead = head;
+    openCols = shape.rows <= 2 ? 0 : shape.cols;
+  };
+
+  for (let i = 0; i < segs.length; i++) {
+    const seg = segs[i];
+    if (seg.table) {
+      const head = firstCellText(seg.table);
+      const shape = tableShape(seg.table);
+      const repeatsHeader = openIdx >= 0 && !!openHead && head === openHead;
+      const continues = openIdx >= 0 && !repeatsHeader && (openCols === 0 || shape.cols === openCols);
+
+      if (continues) {
+        segs[openIdx].table = segs[openIdx].table!.replace(
+          /<\/table>/i, `${tableRows(seg.table)}</table>`,
+        );
+        if (openCols === 0 && shape.rows > 2) openCols = shape.cols;
+        seg.table = undefined;
+        seg.text = '';
+      } else {
+        startGroup(i, head, shape);
       }
+      continue;
+    }
+    // Any real content between tables closes the open group. A caption paragraph
+    // does not: it belongs to the table it sits beside.
+    if (seg.text && !isCaption(seg.text)) { openIdx = -1; openHead = ''; openCols = 0; }
+  }
+}
+
+/**
+ * Give every recovered table its caption. Adjacent captions are matched first;
+ * anything left over is paired with the remaining un-captioned tables in
+ * document order, so a caption the author placed a paragraph away from its table
+ * is still printed instead of being silently dropped as stray caption text.
+ */
+function attachTableCaptions(segs: TableSeg[]): void {
+  const isTableCaption = (t: string) => /^(table\s+s?\d+\s*[:.]|table of\b)/i.test(t.trim());
+  const tableIdx = segs.map((s, i) => (s.table ? i : -1)).filter(i => i >= 0);
+  const captioned = new Set<number>();
+
+  const consume = (capIdx: number, tIdx: number) => {
+    segs[tIdx].table += `<p class="table-caption">${escHtml(segs[capIdx].text.trim())}</p>`;
+    segs[capIdx].text = '';
+    captioned.add(tIdx);
+  };
+
+  // Pass 1 — a caption directly after (preferred) or before its table.
+  for (const t of tableIdx) {
+    for (const j of [t + 1, t - 1]) {
+      const nb = segs[j];
+      if (nb && !nb.table && nb.text && isTableCaption(nb.text)) { consume(j, t); break; }
     }
   }
 
-  return buildResult(mergedSegmentsToBlocks(merged));
+  // Pass 2 — leftovers, paired in document order.
+  const strays = segs
+    .map((s, i) => (!s.table && s.text && isTableCaption(s.text) ? i : -1))
+    .filter(i => i >= 0);
+  const orphans = tableIdx.filter(i => !captioned.has(i));
+  for (let k = 0; k < Math.min(strays.length, orphans.length); k++) {
+    consume(strays[k], orphans[k]);
+  }
 }
 
 // Group leveled segments into section blocks. A level-1 heading opens a new
 // section; a level-2 heading opens a new subsection within it; body text and
 // tables attach to the current subsection / section.
-interface RawSubsection { subheading?: string; text: string }
+interface RawSubsection { subheading?: string; text: string; tables?: string[] }
 interface RawBlock { heading: string; subsections: RawSubsection[]; tables: string[] }
 
 function mergedSegmentsToBlocks(
@@ -368,7 +487,11 @@ function mergedSegmentsToBlocks(
       curSub = { subheading: seg.text, text: '' };
       cur.subsections.push(curSub);
     } else if (seg.table) {
-      cur.tables.push(seg.table);
+      // Keep the table where the author put it. Collecting them at section level
+      // used to dump every table of a long Results section in one block pages
+      // away from the prose that discusses it.
+      const sub = ensureSub();
+      (sub.tables ??= []).push(seg.table);
     } else if (!seg.text || isCaption(seg.text)) {
       // Drop figure/table caption paragraphs from body text (figures are uploaded
       // separately; table captions are attached to their table).
@@ -617,10 +740,11 @@ function buildResult(blocks: RawBlock[]): ParsedSections {
   for (const block of blocks) {
     const text = blockText(block);
     const kind = classifyHeading(block.heading);
+    const blockTables = [...block.tables, ...block.subsections.flatMap(s => s.tables ?? [])];
 
     // Tables in non-body sections (e.g. supplementary tables after References)
     // are collected separately so they still render instead of being dropped.
-    if (kind !== 'body' && block.tables.length) orphanTables.push(...block.tables);
+    if (kind !== 'body' && blockTables.length) orphanTables.push(...blockTables);
 
     if (kind === 'skip') continue;
     if (!block.heading && !text && block.tables.length === 0) continue;
@@ -635,12 +759,16 @@ function buildResult(blocks: RawBlock[]): ParsedSections {
       result.introduction = (result.introduction ? result.introduction + '\n\n' : '') + text;
     } else if (kind === 'conclusion') {
       result.conclusion = (result.conclusion ? result.conclusion + '\n\n' : '') + text;
+      // Remember where the Conclusion sat in the manuscript so the proof can put
+      // it back there. Without this it was always rendered last, pushing it past
+      // anything the author wrote after it (appendices, abbreviation lists).
+      result.conclusionAfter ??= result.body.length;
     } else if (kind === 'ack') {
       result.acknowledgments = text;
     } else if (kind === 'refs') {
       result.references = text;
     } else {
-      const subsections = block.subsections.filter(s => s.subheading || s.text.trim());
+      const subsections = block.subsections.filter(s => s.subheading || s.text.trim() || s.tables?.length);
       result.body.push({
         heading: block.heading,
         subsections: subsections.length ? subsections : [{ text }],
@@ -671,28 +799,33 @@ export function matchSectionByName(name: string, sections: ParsedSections): Sect
   if (!normName) return { status: 'unmatched' };
 
   const candidates: { index: number; heading: string; score: number }[] = [];
-  let idx = 0;
 
-  function check(heading: string) {
+  function check(heading: string, idx: number) {
     const normH = norm(heading);
     let score = 0;
-    if (normH === normName)                                        score = 4; // exact
+    // word-overlap: fraction of the typed name's words found in the heading
+    const nameWords = normName.split(' ').filter(Boolean);
+    const headWords = new Set(normH.split(' ').filter(Boolean));
+    const overlap = nameWords.length
+      ? nameWords.filter(w => headWords.has(w)).length / nameWords.length
+      : 0;
+
+    if (normH === normName)                                            score = 4; // exact
     else if (normH.startsWith(normName) || normName.startsWith(normH)) score = 3; // prefix
-    else if (normH.includes(normName) || normName.includes(normH)) score = 2; // substring
-    else {
-      // word-overlap: fraction of name words found in heading
-      const nameWords = normName.split(' ').filter(Boolean);
-      const headWords = new Set(normH.split(' ').filter(Boolean));
-      const overlap = nameWords.filter(w => headWords.has(w)).length / nameWords.length;
-      if (overlap >= 0.6) score = 1; // majority of words match
-    }
+    // Every word of the name appears in this heading. Ranked above a bare
+    // substring hit so "advances in treating T-ALL" picks "Advances in treating
+    // pediatric T-ALL" rather than the subheading "T-ALL" it merely contains.
+    else if (overlap === 1)                                            score = 2.5;
+    else if (normH.includes(normName) || normName.includes(normH))     score = 2; // substring
+    else if (overlap >= 0.6)                                           score = 1; // majority of words
     if (score > 0) candidates.push({ index: idx, heading, score });
-    idx++;
   }
 
-  if (sections.introduction) check('Introduction');
-  for (const s of sections.body) check(s.heading);
-  if (sections.conclusion) check('Conclusion');
+  // Subheadings are placement targets too. The submission form has always
+  // offered them in its "Which section?" list (see getHeadingCandidates), but
+  // matching only ever looked at top-level headings — so a student who picked a
+  // subheading got "not found" and their figure fell back to a sequential guess.
+  for (const t of placementTargetsFor(sections)) check(t.label, t.index);
 
   if (candidates.length === 0) return { status: 'unmatched' };
 

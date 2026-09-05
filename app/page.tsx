@@ -2,6 +2,18 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { parseCaptionLabel } from '@/lib/article-layout';
+
+/**
+ * If this caption names a table the manuscript already contains, return that
+ * table's label — the student is about to upload a picture of something we will
+ * typeset anyway.
+ */
+function duplicateLabel(caption: string, tableLabels: string[]): string | null {
+  const parsed = parseCaptionLabel(caption);
+  if (!parsed || parsed.kind !== 'table') return null;
+  return tableLabels.includes(parsed.key) ? parsed.label : null;
+}
 
 const JOURNALS = [
   'Environment, Ecology, & Earth Protections',
@@ -289,10 +301,14 @@ interface ParsePreview {
   warnings: string[];
 }
 
-function Step3({ file, onChange, onDetected, choices, onChoices }: {
+/** A place a figure can be attached to: a section heading, or a subheading under one. */
+interface DetectedHeading { text: string; sub: boolean }
+
+function Step3({ file, onChange, onDetected, onTables, choices, onChoices }: {
   file: File | null;
   onChange: (f: File | null) => void;
-  onDetected: (headings: string[]) => void;
+  onDetected: (headings: DetectedHeading[]) => void;
+  onTables: (labels: string[]) => void;
   choices: Record<string, HeadingChoice>;
   onChoices: (c: Record<string, HeadingChoice>) => void;
 }) {
@@ -301,11 +317,15 @@ function Step3({ file, onChange, onDetected, choices, onChoices }: {
   const [preview, setPreview] = useState<ParsePreview | null>(null);
   const [checkError, setCheckError] = useState('');
 
-  // Recompute the current header list (for the figure dropdown) from the live choices.
+  // Recompute the figure dropdown's list from the live choices. Subheadings are
+  // included: a figure often belongs under a specific subheading, and leaving
+  // them out forced students to pick a whole section (or nothing, which fell
+  // back to a sequential guess and put the figure on the wrong page).
   function publishHeaders(cands: HeadingCandidate[], ch: Record<string, HeadingChoice>) {
     const headers = cands
-      .filter(c => (ch[c.text] ?? c.level) === 'header')
-      .map(c => c.text);
+      .map(c => ({ text: c.text, level: ch[c.text] ?? c.level }))
+      .filter(c => c.level === 'header' || c.level === 'subheader')
+      .map(c => ({ text: c.text, sub: c.level === 'subheader' }));
     onDetected(headers);
   }
 
@@ -319,6 +339,7 @@ function Step3({ file, onChange, onDetected, choices, onChoices }: {
     setPreview(null);
     setCheckError('');
     onDetected([]);
+    onTables([]);
     onChoices({});
     // Manuscripts must be Word .docx — PDFs lose the structure the system needs.
     if (f && !f.name.toLowerCase().endsWith('.docx')) {
@@ -343,6 +364,7 @@ function Step3({ file, onChange, onDetected, choices, onChoices }: {
         (data.candidates || []).forEach((c: HeadingCandidate) => { seeded[c.text] = c.level; });
         onChoices(seeded);
         publishHeaders(data.candidates || [], seeded);
+        onTables(data.tableLabels || []);
       }
     } catch {
       setCheckError('Could not check the file — you can still submit, but please verify the preview afterwards.');
@@ -468,7 +490,14 @@ function Step3({ file, onChange, onDetected, choices, onChoices }: {
 }
 
 // ── Step 4: Upload Figures ───────────────────────────────────────────────────
-interface FigureEntry { file: File; caption: string; preview: string; sectionName: string; }
+interface FigureEntry {
+  file: File;
+  caption: string;
+  preview: string;
+  sectionName: string;
+  /** Print this image even though the manuscript already contains the same table. */
+  keepDespiteDuplicate?: boolean;
+}
 
 type FigureMode = 'images' | 'document';
 
@@ -482,10 +511,11 @@ interface FigureState {
   docSectionNames: string;  // one section name per line (matches figure order)
 }
 
-function Step4({ state, onChange, detectedHeadings }: {
+function Step4({ state, onChange, detectedHeadings, tableLabels }: {
   state: FigureState;
   onChange: (s: FigureState) => void;
-  detectedHeadings: string[];
+  detectedHeadings: DetectedHeading[];
+  tableLabels: string[];
 }) {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
@@ -495,7 +525,7 @@ function Step4({ state, onChange, detectedHeadings }: {
     const current = state.images;
     if (current.length + files.length > 13) { alert('Maximum 13 figures.'); return; }
     const newEntries: FigureEntry[] = Array.from(files).map(file => ({
-      file, caption: '', preview: URL.createObjectURL(file), sectionName: '',
+      file, caption: '', preview: URL.createObjectURL(file), sectionName: '', keepDespiteDuplicate: false,
     }));
     onChange({ ...state, images: [...current, ...newEntries] });
   }
@@ -509,6 +539,12 @@ function Step4({ state, onChange, detectedHeadings }: {
   function updateSectionName(i: number, sectionName: string) {
     const next = [...state.images];
     next[i] = { ...next[i], sectionName };
+    onChange({ ...state, images: next });
+  }
+
+  function updateKeepDuplicate(i: number, keepDespiteDuplicate: boolean) {
+    const next = [...state.images];
+    next[i] = { ...next[i], keepDespiteDuplicate };
     onChange({ ...state, images: next });
   }
 
@@ -592,14 +628,27 @@ function Step4({ state, onChange, detectedHeadings }: {
                     <p className="text-xs text-gray-500 mb-1 truncate">{fig.file.name}</p>
                     <input type="text" value={fig.caption}
                       onChange={e => updateCaption(i, e.target.value)}
-                      placeholder="Figure caption…"
+                      placeholder="Caption — start it with your own label, e.g. “Table 1. …” or “Figure S2. …”"
                       className="w-full border border-gray-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[#2BA4C8] bg-white mb-1" />
+                    {duplicateLabel(fig.caption, tableLabels) && (
+                      <label className="flex items-start gap-1.5 mb-1 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 cursor-pointer">
+                        <input type="checkbox" checked={!!fig.keepDespiteDuplicate}
+                          onChange={e => updateKeepDuplicate(i, e.target.checked)}
+                          className="mt-0.5 w-3 h-3 accent-[#2BA4C8] flex-shrink-0" />
+                        <span>
+                          Your manuscript already contains <strong>{duplicateLabel(fig.caption, tableLabels)}</strong>,
+                          which we will typeset. This image is skipped — tick to print it as well.
+                        </span>
+                      </label>
+                    )}
                     {detectedHeadings.length > 0 ? (
                       <select value={fig.sectionName}
                         onChange={e => updateSectionName(i, e.target.value)}
                         className="w-full border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[#2BA4C8] bg-gray-50 text-gray-600">
                         <option value="">Which section? (optional)</option>
-                        {detectedHeadings.map((h, hi) => <option key={hi} value={h}>{h}</option>)}
+                        {detectedHeadings.map((h, hi) => (
+                          <option key={hi} value={h.text}>{h.sub ? ` ↳ ${h.text}` : h.text}</option>
+                        ))}
                       </select>
                     ) : (
                       <input type="text" value={fig.sectionName}
@@ -658,12 +707,12 @@ function Step4({ state, onChange, detectedHeadings }: {
               placeholder={"Figure 1: Layers of the epidermis.\nFigure 2: UV absorption spectrum of carotenoids.\nFigure 3: Western blot results."}
             />
             <p className="text-xs text-gray-400 mt-1">
-              One caption per line, in figure order.
+              One caption per line, in figure order. Start each with your own label — &ldquo;Table 1. …&rdquo;, &ldquo;Figure S2. …&rdquo; — and it is printed exactly as you wrote it.
             </p>
           </div>
 
           <div>
-            <Label>Section for each figure (one per line, optional)</Label>
+            <Label>Section or subheading for each figure (one per line, optional)</Label>
             <Textarea
               rows={4}
               value={state.docSectionNames}
@@ -675,7 +724,7 @@ function Step4({ state, onChange, detectedHeadings }: {
             </p>
             {detectedHeadings.length > 0 && (
               <p className="text-xs text-gray-500 mt-1">
-                <span className="font-semibold">Detected sections</span> (copy these exactly): {detectedHeadings.join(' · ')}
+                <span className="font-semibold">Detected sections</span> (copy these exactly): {detectedHeadings.map(h => h.text).join(' · ')}
               </p>
             )}
           </div>
@@ -766,7 +815,8 @@ export default function SubmitPage() {
   const [manuscript, setManuscript] = useState<File | null>(null);
   // Section headings detected from the manuscript — used to populate the
   // per-figure "which section" dropdown so students pick, not type.
-  const [detectedHeadings, setDetectedHeadings] = useState<string[]>([]);
+  const [detectedHeadings, setDetectedHeadings] = useState<DetectedHeading[]>([]);
+  const [tableLabels, setTableLabels] = useState<string[]>([]);
   // Student's header/subheader/remove re-classification, keyed by heading text.
   const [sectionChoices, setSectionChoices] = useState<Record<string, HeadingChoice>>({});
 
@@ -860,6 +910,7 @@ export default function SubmitPage() {
         figState.images.forEach(fig => fd.append('figures', fig.file));
         fd.append('captions', JSON.stringify(figState.images.map(f => f.caption)));
         fd.append('sectionNames', JSON.stringify(figState.images.map(f => f.sectionName || '')));
+        fd.append('keepDuplicates', JSON.stringify(figState.images.map(f => !!f.keepDespiteDuplicate)));
       } else if (figState.docFile) {
         fd.append('figuresDoc', figState.docFile);
         const captionLines = figState.docCaptions.split('\n').map(l => l.trim()).filter(Boolean);
@@ -882,9 +933,9 @@ export default function SubmitPage() {
   const stepContent = [
     <Step1 key={0} data={author} onChange={setAuthor} />,
     <Step2 key={1} data={meta} onChange={setMeta} />,
-    <Step3 key={2} file={manuscript} onChange={setManuscript} onDetected={setDetectedHeadings}
+    <Step3 key={2} file={manuscript} onChange={setManuscript} onDetected={setDetectedHeadings} onTables={setTableLabels}
       choices={sectionChoices} onChoices={setSectionChoices} />,
-    <Step4 key={3} state={figState} onChange={setFigState} detectedHeadings={detectedHeadings} />,
+    <Step4 key={3} state={figState} onChange={setFigState} detectedHeadings={detectedHeadings} tableLabels={tableLabels} />,
     <Step5 key={4} author={author} meta={meta} manuscript={manuscript} figState={figState} />,
   ];
 

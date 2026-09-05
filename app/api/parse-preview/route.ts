@@ -3,6 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { parseSectionsFromDocx, getHeadingCandidates } from '@/lib/parse-sections';
+import { placementTargetsFor, typesetTableLabels } from '@/lib/article-layout';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -39,10 +40,16 @@ export async function POST(req: NextRequest) {
 
     const parsed = await parseSectionsFromDocx(tmpPath);
 
-    const headings: string[] = [];
-    if (parsed.introduction) headings.push('Introduction');
-    for (const s of parsed.body) headings.push(s.heading);
-    if (parsed.conclusion) headings.push('Conclusion');
+    // Every place a figure can be attached — sections AND subheadings — in the
+    // order the proof renders them. Offering only top-level headings meant a
+    // figure belonging under a subheading had nowhere to go.
+    const targets = placementTargetsFor(parsed);
+    const headings = targets.map(t => t.label);
+    const subheadings = targets.filter(t => t.level === 2).map(t => t.label);
+
+    // Labels of tables typeset from the manuscript, so the figure step can warn
+    // a student who is also about to upload a picture of the same table.
+    const tableLabels = Array.from(typesetTableLabels(parsed));
 
     // Ordered heading candidates the student can re-classify (header/subheader/remove).
     const candidates = getHeadingCandidates(parsed);
@@ -73,7 +80,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({ headings, candidates, refCount, totalChars, warnings });
+    if (tableLabels.length) {
+      warnings.push(
+        `${tableLabels.length} table${tableLabels.length === 1 ? '' : 's'} (${tableLabels
+          .map((l: string) => l.replace(/\b\w/g, (c: string) => c.toUpperCase()))
+          .join(', ')}) will be typeset from your manuscript. You do not need to upload pictures of them — if you do, the typeset version is used and the picture is skipped.`,
+      );
+    }
+
+    return NextResponse.json({
+      headings, subheadings, tableLabels, candidates, refCount, totalChars, warnings,
+    });
   } catch (err) {
     console.error('Parse preview failed:', err);
     return NextResponse.json(

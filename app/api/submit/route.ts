@@ -100,6 +100,10 @@ export async function POST(req: NextRequest) {
     const captions: string[] = captionsRaw ? JSON.parse(captionsRaw) : [];
     const sectionNamesRaw = get('sectionNames');
     const sectionNames: string[] = sectionNamesRaw ? JSON.parse(sectionNamesRaw) : [];
+    // Per-figure opt-in to print an uploaded picture of a table the manuscript
+    // already contains (otherwise the typeset table is used and the image skipped).
+    const keepDuplicatesRaw = get('keepDuplicates');
+    const keepDuplicates: boolean[] = keepDuplicatesRaw ? JSON.parse(keepDuplicatesRaw) : [];
 
     // Option A: individual image files
     const individualFigureFiles = formData.getAll('figures') as File[];
@@ -143,6 +147,7 @@ export async function POST(req: NextRequest) {
           number: figuresJson.length + 1,
           filename,
           sectionName: sectionNames[i] || undefined,
+          keepDespiteDuplicate: keepDuplicates[i] === true,
         });
       }
     } else if (figuresDocFile && figuresDocFile.size > 0) {

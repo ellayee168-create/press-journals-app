@@ -107,11 +107,19 @@ export interface Figure {
   sectionMatchStatus?: 'matched' | 'unmatched' | 'ambiguous';
   /** The heading text that was actually matched */
   sectionMatchedHeading?: string;
+  /** Print this float even though the manuscript already contains the same table. */
+  keepDespiteDuplicate?: boolean;
+}
+
+export interface Subsection {
+  subheading?: string;
+  text: string;
+  tables?: string[]; // tables that appeared here, in manuscript order
 }
 
 export interface Section {
   heading: string;
-  subsections: { subheading?: string; text: string }[];
+  subsections: Subsection[];
   tables?: string[]; // clean HTML <table> strings extracted from the manuscript
 }
 
@@ -119,6 +127,8 @@ export interface ParsedSections {
   introduction?: string;
   body: Section[];
   conclusion?: string;
+  /** Index in `body` the Conclusion sat before, so it renders where the author put it. */
+  conclusionAfter?: number;
   acknowledgments?: string;
   references?: string;
   tables?: string[]; // supplementary tables not tied to a body section

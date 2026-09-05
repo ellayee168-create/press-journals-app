@@ -1,6 +1,7 @@
 import { Figure, ParsedSections, CoAuthor } from './db';
 import { getJournalConfig } from './journals';
-import { buildArticleLayout, meaningfulAcknowledgments, cleanCaption } from './article-layout';
+import { buildArticleLayout, meaningfulAcknowledgments, assignFloatLabels, dropFloatsDuplicatingTables, filterOrphanTables } from './article-layout';
+import type { FloatLabels } from './article-layout';
 import fs from 'fs';
 import path from 'path';
 
@@ -64,12 +65,15 @@ export function figureToBase64(figurePath: string): string {
   }
 }
 
-function makeFigure(fig: Figure, id: string, embed: boolean): string {
+function makeFigure(fig: Figure, id: string, embed: boolean, labels: FloatLabels): string {
   const src = embed ? figureToBase64(fig.path) : `/api/figure/${id}/${fig.number}`;
   if (!src) return '';
+  // The author's own label wins when they wrote one ("Table 1.", "Figure S2."),
+  // so the proof never prints two numbers for one item.
+  const { label, text } = labels.get(fig) ?? { label: `Figure ${fig.number}`, text: fig.caption };
   return `<div class="fig">
-  <p class="fig-caption"><strong>Figure ${fig.number}:</strong> ${esc(cleanCaption(fig.caption))}</p>
-  <img src="${src}" alt="Figure ${fig.number}">
+  <p class="fig-caption"><strong>${esc(label)}:</strong> ${esc(text)}</p>
+  <img src="${src}" alt="${esc(label)}">
 </div>`;
 }
 
@@ -106,8 +110,16 @@ export function buildArticleHtml(data: ArticleData, embed = false): string {
   const authorCaps = `${data.lastName.toUpperCase()}, ${data.firstName.toUpperCase()}`;
 
   // ── Figure placement & body (shared layout — see lib/article-layout.ts) ────
-  const layout = buildArticleLayout(data.sections, data.figures);
-  const figHtml = (fs: Figure[]) => fs.map(f => makeFigure(f, data.id, embed)).join('\n');
+  // A table the author uploaded as an image AND left in the manuscript renders
+  // once, not twice.
+  const { kept: figuresToRender, droppedTableLabels } =
+    dropFloatsDuplicatingTables(data.figures, data.sections);
+  const labels = assignFloatLabels(figuresToRender);
+  const layout = buildArticleLayout(data.sections, figuresToRender);
+  const figHtml = (fs: Figure[]) => fs.map(f => makeFigure(f, data.id, embed, labels)).join('\n');
+  // Tables are pre-sanitized clean HTML (cells escaped in the parser).
+  const tableHtml = (ts?: string[]) =>
+    (ts?.length ? ts.map(t => `<div class="table-wrap">${t}</div>`).join('\n') : '');
 
   let bodyHtml = '';
   if (layout.rawText !== undefined) {
@@ -119,10 +131,11 @@ export function buildArticleHtml(data: ArticleData, embed = false): string {
       bodyHtml += `<h2>${esc(section.heading)}</h2>\n${figHtml(section.figures)}`;
       for (const sub of section.subsections) {
         if (sub.subheading) bodyHtml += `<h3>${esc(sub.subheading)}</h3>\n`;
+        bodyHtml += figHtml(sub.figures);
         bodyHtml += toParagraphs(sub.text) + '\n';
+        bodyHtml += tableHtml(sub.tables);
       }
-      // Tables are pre-sanitized clean HTML (cells escaped in the parser).
-      if (section.tables?.length) bodyHtml += section.tables.map(t => `<div class="table-wrap">${t}</div>`).join('\n');
+      bodyHtml += tableHtml(section.tables);
       bodyHtml += '<div class="clearfix"></div>';
     }
     // Figures whose target section doesn't exist go at the end (never dropped).
@@ -136,9 +149,11 @@ export function buildArticleHtml(data: ArticleData, embed = false): string {
     ? `<h2>Acknowledgements</h2>\n<p class="no-indent">${esc(ackText)}</p>`
     : '';
 
-  // Supplementary tables (e.g. placed after References in the manuscript).
-  const supplTablesHtml = data.sections.tables?.length
-    ? `<div class="clearfix"></div><h2>Tables</h2>\n${data.sections.tables.map(t => `<div class="table-wrap">${t}</div>`).join('\n')}`
+  // Supplementary tables (e.g. placed after References in the manuscript), minus
+  // any an uploaded float is already standing in for.
+  const supplTables = filterOrphanTables(data.sections.tables, droppedTableLabels);
+  const supplTablesHtml = supplTables.length
+    ? `<div class="clearfix"></div><h2>Tables</h2>\n${tableHtml(supplTables)}`
     : '';
 
   const refText = data.referencesRaw || data.sections.references || '';
