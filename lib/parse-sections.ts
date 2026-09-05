@@ -32,24 +32,15 @@ const KNOWN_SKIP    = new Set([
   'conflict of interest', 'conflicts of interest', 'competing interests', // form's COI field
   'declaration of competing interest', 'declaration of interest', 'disclosure', 'disclosures',
 ]);
-// Figure/table captions are collected & rendered separately, so any legend section must not leak in.
+// Only the legend blocks that genuinely restate the main-text float captions the
+// form already collects. Supplemental legends are NOT listed: they describe
+// material that has no other home in the article, so dropping them silently
+// deletes content the author wrote. Keeping the Conclusion in its manuscript
+// position is handled by `conclusionAfter`, not by removing what follows it.
 const KNOWN_FIGS    = new Set([
   'figure legend', 'figure legends', 'figures', 'figure captions', 'figure caption',
   'table legend', 'table legends', 'list of figures', 'list of tables', 'tables',
-  'supplemental material legends', 'supplementary material legends',
-  'supplemental figure legends', 'supplementary figure legends',
-  'supplemental table legends', 'supplementary table legends',
-  'supplemental legends', 'supplementary legends',
 ]);
-
-// Any "<something> legends/captions" heading is a legend block, whatever the
-// author called it ("Supplemental Material Legends", "Extended Data Legends").
-// Its contents duplicate the float captions the form already collects, so it is
-// dropped rather than printed as a body section.
-function isLegendHeading(normalised: string): boolean {
-  return /\b(legends?|captions?)$/.test(normalised) &&
-    /\b(figure|table|fig|supplement(al|ary)?|material|data|exhibit|panel|scheme|chart)\b/.test(normalised);
-}
 // Markers that reliably indicate the real article body has begun. Everything before
 // the first one (title, author line, affiliations, correspondence) is front-matter
 // the submission form already collects, so it gets dropped.
@@ -74,7 +65,7 @@ function normalise(s: string) {
 function isKnownSectionName(text: string): boolean {
   const n = normalise(text);
   return (
-    KNOWN_SKIP.has(n) || KNOWN_FIGS.has(n) || isLegendHeading(n) || KNOWN_INTRO.has(n) ||
+    KNOWN_SKIP.has(n) || KNOWN_FIGS.has(n) || KNOWN_INTRO.has(n) ||
     KNOWN_METHODS.has(n) || KNOWN_RESULTS.has(n) || KNOWN_DISCUSS.has(n) ||
     KNOWN_CONCL.has(n) || KNOWN_ACK.has(n) || KNOWN_REFS.has(n)
   );
@@ -84,7 +75,6 @@ function classifyHeading(raw: string): 'skip' | 'intro' | 'conclusion' | 'ack' |
   const n = normalise(raw);
   if (KNOWN_SKIP.has(n))   return 'skip';
   if (KNOWN_FIGS.has(n))   return 'skip';
-  if (isLegendHeading(n))  return 'skip';
   if (KNOWN_INTRO.has(n))  return 'intro';
   if (KNOWN_CONCL.has(n))  return 'conclusion';
   if (KNOWN_ACK.has(n))    return 'ack';
@@ -216,6 +206,48 @@ function headingFormat(rawInner: string, tag: string, text: string): HeadingForm
   return 'none';
 }
 
+/**
+ * Stretch any row that is narrower than the table so its right edge lines up.
+ *
+ * Authors merge header cells in Word without Word always recording a grid span,
+ * which leaves a two-cell heading sitting above a five-column body and a torn
+ * right edge in the proof. Widening the row's LAST cell fills the gap without
+ * inventing a column or moving any value. Rows carrying a rowspan from above are
+ * measured with that occupancy included, so they are not padded twice.
+ */
+function padShortRows(rows: string[]): void {
+  const parse = (row: string) =>
+    Array.from(row.matchAll(/<(t[dh])([^>]*)>([\s\S]*?)<\/\1>/gi)).map(m => ({
+      tag: m[1], attrs: m[2], text: m[3],
+      colspan: Math.max(1, Number(/colspan\s*=\s*"?(\d{1,2})/i.exec(m[2])?.[1] ?? 1)),
+      rowspan: Math.max(1, Number(/rowspan\s*=\s*"?(\d{1,2})/i.exec(m[2])?.[1] ?? 1)),
+    }));
+
+  const parsed = rows.map(parse);
+  const carried = new Array(parsed.length).fill(0);
+  parsed.forEach((cells, r) => {
+    for (const c of cells) {
+      for (let k = 1; k < c.rowspan; k++) if (r + k < carried.length) carried[r + k] += c.colspan;
+    }
+  });
+
+  const widths = parsed.map((cells, r) => carried[r] + cells.reduce((n, c) => n + c.colspan, 0));
+  const freq = new Map<number, number>();
+  for (const w of widths) freq.set(w, (freq.get(w) ?? 0) + 1);
+  const full = Array.from(freq.entries()).sort((a, b) => b[1] - a[1] || b[0] - a[0])[0][0];
+
+  parsed.forEach((cells, r) => {
+    const deficit = full - widths[r];
+    if (deficit <= 0 || cells.length === 0) return;
+    const last = cells[cells.length - 1];
+    last.colspan += deficit;
+    rows[r] = `<tr>${cells.map(c =>
+      `<${c.tag}${c.colspan > 1 ? ` colspan="${c.colspan}"` : ''}` +
+      `${c.rowspan > 1 ? ` rowspan="${c.rowspan}"` : ''}>${c.text}</${c.tag}>`,
+    ).join('')}</tr>`;
+  });
+}
+
 // Pull <table> blocks out of the HTML so their cell paragraphs don't leak into
 // the section stream as fake headings. Each table is replaced with a sentinel
 // paragraph (@@TABLEk@@) that preserves its position, and returned as clean HTML.
@@ -227,17 +259,25 @@ function extractTables(html: string): { html: string; tables: string[] } {
     let rm: RegExpExecArray | null;
     while ((rm = rowRe.exec(tbl)) !== null) {
       const cells: string[] = [];
-      const cellRe = /<(t[dh])[^>]*>([\s\S]*?)<\/\1>/gi;
+      const cellRe = /<(t[dh])([^>]*)>([\s\S]*?)<\/\1>/gi;
       let cm: RegExpExecArray | null;
       while ((cm = cellRe.exec(rm[1])) !== null) {
-        const isHeader = cm[1].toLowerCase() === 'th';
-        const cellText = htmlToText(cm[2])
+        const tag = cm[1].toLowerCase() === 'th' ? 'th' : 'td';
+        // Merged cells must survive. Word tables put a single "Whites" heading
+        // over a pair of data columns; dropping its colspan slid every heading
+        // one column left of the numbers it labels.
+        const span = (attr: string) => {
+          const m = new RegExp(`${attr}\\s*=\\s*"?(\\d{1,2})`, 'i').exec(cm![2]);
+          return m && Number(m[1]) > 1 ? ` ${attr}="${Number(m[1])}"` : '';
+        };
+        const cellText = htmlToText(cm[3])
           .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        cells.push(isHeader ? `<th>${cellText}</th>` : `<td>${cellText}</td>`);
+        cells.push(`<${tag}${span('colspan')}${span('rowspan')}>${cellText}</${tag}>`);
       }
       if (cells.length) rows.push(`<tr>${cells.join('')}</tr>`);
     }
     if (rows.length === 0) return '';
+    padShortRows(rows);
     const k = tables.length;
     tables.push(`<table class="doc-table">${rows.join('')}</table>`);
     return `<p>@@TABLE${k}@@</p>`;
@@ -367,7 +407,7 @@ const escHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').re
 
 /** Text of a table's first cell — the signal that a fragment repeats a header row. */
 function firstCellText(tableHtml: string): string {
-  const m = /<t[dh]>([\s\S]*?)<\/t[dh]>/i.exec(tableHtml);
+  const m = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/i.exec(tableHtml);
   return m ? m[1].replace(/\s+/g, ' ').trim().toLowerCase() : '';
 }
 
@@ -379,8 +419,11 @@ function tableRows(tableHtml: string): string {
 
 /** Row count and the table's usual number of columns — its "shape". */
 function tableShape(tableHtml: string): { rows: number; cols: number } {
+  // Width is the number of COLUMNS a row occupies, not the number of cells it
+  // contains — a cell with colspan="2" fills two of them.
   const widths = Array.from(tableHtml.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi))
-    .map(m => Array.from(m[1].matchAll(/<t[dh][^>]*>/gi)).length);
+    .map(m => Array.from(m[1].matchAll(/<t[dh]([^>]*)>/gi))
+      .reduce((n, c) => n + Math.max(1, Number(/colspan\s*=\s*"?(\d{1,2})/i.exec(c[1])?.[1] ?? 1)), 0));
   if (widths.length === 0) return { rows: 0, cols: 0 };
   const freq = new Map<number, number>();
   for (const w of widths) freq.set(w, (freq.get(w) ?? 0) + 1);
@@ -437,6 +480,20 @@ function groupTableFragments(segs: TableSeg[]): void {
     // Any real content between tables closes the open group. A caption paragraph
     // does not: it belongs to the table it sits beside.
     if (seg.text && !isCaption(seg.text)) { openIdx = -1; openHead = ''; openCols = 0; }
+  }
+
+  // Re-align widths on the MERGED tables. A fragment is padded against its own
+  // rows when it is first extracted, but a heading split into its own one-row
+  // fragment only reveals itself as narrow once the body rows are joined on.
+  for (const seg of segs) {
+    if (!seg.table) continue;
+    const rows = Array.from(seg.table.matchAll(/<tr[^>]*>[\s\S]*?<\/tr>/gi)).map(m => m[0]);
+    if (rows.length < 2) continue;
+    padShortRows(rows);
+    seg.table = seg.table.replace(
+      /(<table[^>]*>)[\s\S]*?(<\/table>)/i,
+      (_full, open: string, close: string) => `${open}${rows.join('')}${close}`,
+    );
   }
 }
 
