@@ -314,12 +314,27 @@ function parseSectionsFromHtml(html: string, overrides?: SectionOverrides): Pars
   if (overrides && Object.keys(overrides).length) {
     const normMap: SectionOverrides = {};
     for (const [k, v] of Object.entries(overrides)) normMap[normalise(k)] = v;
+
+    // A 'none' on every heading leaves the article as one undifferentiated block
+    // with all its figures stranded at the end. That is never what an author
+    // means by "not a heading" — it is what a mis-click or a stale override set
+    // produces — and it is unrecoverable from the proof, so the demotions are
+    // ignored when they would erase the entire structure. Explicit
+    // header/subheader choices are always honoured.
+    // The form seeds a choice for EVERY detected heading, so a normal override
+    // set is a mix of 'header' and 'subheader'. An all-'none' set is therefore
+    // not a considered decision — it is a degenerate set (mis-clicks, or a stale
+    // set carried over from another document) that flattens the article into one
+    // block and strands every figure at the end.
+    const values = Object.values(normMap);
+    const wouldEraseEverything = values.length >= 3 && values.every(v => v === 'none');
+
     for (const s of segments) {
       if (s.level === 0) continue;
       const choice = normMap[normalise(s.text)];
       if (choice === 'header') s.level = 1;
       else if (choice === 'subheader') s.level = 2;
-      else if (choice === 'none') s.level = 0;
+      else if (choice === 'none' && !wouldEraseEverything) s.level = 0;
     }
   }
 
@@ -793,7 +808,24 @@ export type SectionMatchResult =
  * section index in the parsed document. Tries exact → starts-with → contains.
  * Returns 'ambiguous' when multiple sections score equally.
  */
+// Section pickers hand back a breadcrumb — "Results → Status of Key Urban
+// Infrastructure Domains → Transportation". The last segment is the section the
+// author actually chose; the earlier ones are only there to disambiguate it for
+// a human reader. Matched whole, a breadcrumb is dominated by its own root:
+// "results status of key…" is prefixed by the heading "Results", which scores
+// higher than the leaf it contains, so every figure in the paper collapses onto
+// "Results" — and reports itself as a confident match while doing it.
+const BREADCRUMB_SPLIT = /\s*(?:→|➔|»|\||->|>>|>)\s*/;
+
 export function matchSectionByName(name: string, sections: ParsedSections): SectionMatchResult {
+  const segments = name.split(BREADCRUMB_SPLIT).map(s => s.trim()).filter(Boolean);
+  if (segments.length > 1) {
+    // Try the leaf on its own first; only fall back to the raw string if the
+    // leaf is unrecognisable (e.g. the author typed a path we can't resolve).
+    const leaf = matchSectionByName(segments[segments.length - 1], sections);
+    if (leaf.status === 'matched') return leaf;
+  }
+
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
   const normName = norm(name);
   if (!normName) return { status: 'unmatched' };
