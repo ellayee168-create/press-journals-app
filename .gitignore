@@ -42,3 +42,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# deploy secrets + local data snapshots (see deploy/release.env.example)
+/deploy/release.env
+/backups/

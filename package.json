@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "release": "bash deploy/release.sh",
+    "backup": "bash deploy/release.sh --backup-only"
   },
   "dependencies": {
     "better-sqlite3": "^12.10.1",
