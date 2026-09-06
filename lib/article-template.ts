@@ -39,11 +39,19 @@ function toParagraphs(text: string, firstNoIndent = true): string {
   if (!text) return '';
   return text
     .split(/\n{2,}/)
-    .map(p => p.replace(/\n/g, ' ').trim())
-    .filter(Boolean)
+    .map(p => p.replace(/\n/g, ' '))
+    .filter(p => p.trim())
     .map((p, i) => {
-      const cls = firstNoIndent && i === 0 ? ' class="no-indent"' : '';
-      return `<p${cls}>${esc(p)}</p>`;
+      // Leading tabs record how far the author indented this paragraph in Word —
+      // hand-typed lists rely on it, so it is reproduced as a left margin rather
+      // than collapsed away.
+      const nest = /^\t+/.exec(p)?.[0].length ?? 0;
+      const body = p.replace(/^\t+/, '').trim();
+      const classes: string[] = [];
+      if (firstNoIndent && i === 0) classes.push('no-indent');
+      if (nest > 0) classes.push(`nest-${Math.min(3, nest)}`);
+      const cls = classes.length ? ` class="${classes.join(' ')}"` : '';
+      return `<p${cls}>${esc(body)}</p>`;
     })
     .join('\n');
 }
@@ -340,6 +348,12 @@ p {
 }
 p + p { margin-top: 4pt; }
 p.no-indent { text-indent: 0; }
+
+/* Author-indented paragraphs (hand-typed lists Word stored as indentation). */
+p.nest-1, p.nest-2, p.nest-3 { text-indent: 0; text-align: left; }
+p.nest-1 { margin-left: 1.6em; }
+p.nest-2 { margin-left: 3.2em; }
+p.nest-3 { margin-left: 4.8em; }
 
 /* ── Figures: float right, caption above image ── */
 .fig {

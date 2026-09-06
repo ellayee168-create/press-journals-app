@@ -84,10 +84,62 @@ function classifyHeading(raw: string): 'skip' | 'intro' | 'conclusion' | 'ack' |
 
 // ── DOCX path: use mammoth HTML structure (respects Word heading styles) ─────
 
+// Word records how far each paragraph is indented, and authors lean on that to
+// lay out hand-typed lists — numbering and bullets they typed themselves rather
+// than using Word's list feature. mammoth's HTML throws indentation away, which
+// flattened those lists into an undifferentiated stack of paragraphs. We tag
+// each paragraph with the indent Word recorded and turn it into nesting later,
+// once the whole document has been seen (see indentLevels).
+interface MammothParagraph { indent?: { start?: string }; styleId?: string; styleName?: string }
+
+const INDENT_STEP = 180;                    // 1/8 inch — the bucket size we round to
+const INDENT_MAX  = 7200;                   // 5 inches; beyond this is not a list
+
+function indentStyleMap(): string[] {
+  const map: string[] = [];
+  for (let t = INDENT_STEP; t <= INDENT_MAX; t += INDENT_STEP) {
+    map.push(`p[style-name='PJIndent${t}'] => p.pj-ind-${t}:fresh`);
+  }
+  return map;
+}
+
 export async function parseSectionsFromDocx(docxPath: string, overrides?: SectionOverrides): Promise<ParsedSections> {
   const mammoth = await import('mammoth');
-  const { value: html } = await mammoth.convertToHtml({ path: docxPath });
+  // `transforms` is present at runtime but missing from mammoth's type defs.
+  const transforms = (mammoth as unknown as {
+    transforms: { paragraph: (fn: (p: MammothParagraph) => MammothParagraph) => unknown };
+  }).transforms;
+  const transformDocument = transforms.paragraph((p: MammothParagraph) => {
+    const raw = Number(p.indent?.start ?? 0);
+    if (!Number.isFinite(raw) || raw <= 0) return p;
+    const bucket = Math.min(INDENT_MAX, Math.round(raw / INDENT_STEP) * INDENT_STEP);
+    if (bucket < INDENT_STEP) return p;
+    return { ...p, styleId: `PJIndent${bucket}`, styleName: `PJIndent${bucket}` };
+  });
+  const { value: html } = await mammoth.convertToHtml(
+    { path: docxPath },
+    { transformDocument, styleMap: indentStyleMap() } as Parameters<typeof mammoth.convertToHtml>[1],
+  );
   return parseSectionsFromHtml(html, overrides);
+}
+
+/**
+ * Turn recorded indents into nesting levels, relative to the document's own
+ * baseline. A manuscript whose ordinary paragraphs all sit at 1 inch is not an
+ * indented document — that is simply its left margin — so the most common indent
+ * becomes level 0 and only paragraphs meaningfully further right nest under it.
+ */
+function indentLevels(buckets: number[]): (b: number) => number {
+  const freq = new Map<number, number>();
+  for (const b of buckets) freq.set(b, (freq.get(b) ?? 0) + 1);
+  const baseline = freq.size
+    ? Array.from(freq.entries()).sort((a, b) => b[1] - a[1] || a[0] - b[0])[0][0]
+    : 0;
+  const PER_LEVEL = 720; // half an inch per level of nesting
+  return (b: number) => {
+    const level = Math.floor((b - baseline) / PER_LEVEL);
+    return Math.max(0, Math.min(3, level));
+  };
 }
 
 // Pull "Table N: …" caption paragraphs from the text so each recovered table can
@@ -293,19 +345,24 @@ export type SectionOverrides = Record<string, HeadingChoice>;
 
 function parseSectionsFromHtml(html: string, overrides?: SectionOverrides): ParsedSections {
   // level: 0 = body text, 1 = main heading, 2 = subheading; table segments carry html.
-  type Seg = { level: 0 | 1 | 2; text: string; table?: string; fmt?: HeadingFormat };
+  type Seg = { level: 0 | 1 | 2; text: string; table?: string; fmt?: HeadingFormat; indent?: number };
   const segments: Seg[] = [];
 
   const { html: noTableHtml, tables } = extractTables(html);
 
   // Pass 1 — collect segments with their raw heading format (italic unresolved).
-  const blockRe = /<(h[1-3]|p|ol|ul)[^>]*>([\s\S]*?)<\/\1>/gi;
+  const blockRe = /<(h[1-3]|p|ol|ul)([^>]*)>([\s\S]*?)<\/\1>/gi;
+  // Indent bucket recorded on each paragraph by parseSectionsFromDocx.
+  const indentOf = (attrs: string) => Number(/\bpj-ind-(\d+)\b/.exec(attrs)?.[1] ?? 0);
+  const indentBuckets: number[] = [];
   let m: RegExpExecArray | null;
   let olCounter = 1; // persists across consecutive <ol> blocks, resets at each heading
 
   while ((m = blockRe.exec(noTableHtml)) !== null) {
     const tag = m[1].toLowerCase();
-    const innerHtml = m[2];
+    const attrs = m[2];
+    const innerHtml = m[3];
+    const indent = indentOf(attrs);
 
     if (tag === 'ol' || tag === 'ul') {
       const isOrdered = tag === 'ol';
@@ -329,11 +386,16 @@ function parseSectionsFromHtml(html: string, overrides?: SectionOverrides): Pars
       const textNoColon = text.endsWith(':') ? text.slice(0, -1).trim() : text;
       const fmt = headingFormat(innerHtml, tag, text);
       if (fmt !== 'none') olCounter = 1;
-      segments.push({ level: 0, text: fmt !== 'none' ? textNoColon : text, fmt });
+      if (fmt === 'none') indentBuckets.push(indent);
+      segments.push({ level: 0, text: fmt !== 'none' ? textNoColon : text, fmt, indent });
     }
   }
 
   if (segments.length === 0) return { body: [], raw: '' };
+
+  // Resolve raw indents into nesting levels now that the whole document is known.
+  const toLevel = indentLevels(indentBuckets);
+  for (const seg of segments) seg.indent = seg.indent ? toLevel(seg.indent) : 0;
 
   // Decide whether italic headings are a MAIN level or a SUB level for THIS
   // document. Some authors italicise their main section headings (no bold at
@@ -386,7 +448,7 @@ function parseSectionsFromHtml(html: string, overrides?: SectionOverrides): Pars
     const next = i + 1 < segments.length ? segments[i + 1] : null;
     if (seg.level === 0 && !seg.table && next && next.level === 0 && !next.table &&
         /^(https?:\/\/|www\.)/i.test(next.text)) {
-      merged.push({ level: 0, text: seg.text + ' ' + next.text });
+      merged.push({ level: 0, text: seg.text + ' ' + next.text, indent: seg.indent });
       i++;
     } else {
       merged.push(seg);
@@ -536,10 +598,15 @@ function attachTableCaptions(segs: TableSeg[]): void {
 // section; a level-2 heading opens a new subsection within it; body text and
 // tables attach to the current subsection / section.
 interface RawSubsection { subheading?: string; text: string; tables?: string[] }
+
+// A nested paragraph is stored with one leading tab per level. Tabs survive JSON
+// and the admin "Edit sections" textarea, and the renderer turns them back into
+// a left margin — so the author's own list indentation reaches the proof.
+const INDENT_MARK = '\t';
 interface RawBlock { heading: string; subsections: RawSubsection[]; tables: string[] }
 
 function mergedSegmentsToBlocks(
-  segs: Array<{ level: 0 | 1 | 2; text: string; table?: string }>,
+  segs: Array<{ level: 0 | 1 | 2; text: string; table?: string; indent?: number }>,
 ): RawBlock[] {
   const blocks: RawBlock[] = [];
   let cur: RawBlock = { heading: '', subsections: [], tables: [] };
@@ -570,7 +637,8 @@ function mergedSegmentsToBlocks(
       continue;
     } else {
       const sub = ensureSub();
-      sub.text = sub.text ? `${sub.text}\n\n${seg.text}` : seg.text;
+      const para = INDENT_MARK.repeat(seg.indent ?? 0) + seg.text;
+      sub.text = sub.text ? `${sub.text}\n\n${para}` : para;
     }
   }
   if (cur.heading || cur.subsections.length || cur.tables.length) blocks.push(cur);
