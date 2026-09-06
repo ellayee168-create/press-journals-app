@@ -100,6 +100,41 @@ export function placementTargetsFor(sections: ParsedSections): PlacementTarget[]
   return buildPlacementTargets(orderedSections(sections));
 }
 
+/**
+ * Where each float is CITED in the prose, as label key → target index.
+ *
+ * An author who writes "the five year survival rate (Figure 6)" has told us
+ * exactly where Figure 6 belongs, in the one place that cannot be mis-filled: the
+ * manuscript itself. That beats numbering figures sequentially and hoping, which
+ * is what a blank "which section?" field used to fall back to — and which put a
+ * survival-rate chart in the Introduction of a paper that cites it on page 18.
+ *
+ * Only the first citation counts; later mentions are cross-references back to a
+ * figure the reader has already seen.
+ */
+function citationTargets(rendered: RenderedSection[], targets: PlacementTarget[]): Map<string, number> {
+  const found = new Map<string, number>();
+  const record = (text: string, targetIndex: number) => {
+    const cites = Array.from(text.matchAll(/\b(fig(?:ure)?s?\.?|tables?)\s*(s)?\s*(\d{1,3})\b/gi));
+    for (const m of cites) {
+      const kind = /^t/i.test(m[1]) ? 'table' : 'figure';
+      const key = `${kind} ${m[2] ? 'S' : ''}${m[3]}`.toLowerCase();
+      if (!found.has(key)) found.set(key, targetIndex);
+    }
+  };
+
+  for (const t of targets) {
+    const sec = rendered[t.sectionIdx];
+    if (t.subIdx === undefined) {
+      // The section's own prose — text that sits above any subheading.
+      for (const sub of sec.subsections) if (!sub.subheading) record(sub.text, t.index);
+    } else {
+      record(sec.subsections[t.subIdx].text, t.index);
+    }
+  }
+  return found;
+}
+
 export function buildArticleLayout(sections: ParsedSections, figures: Figure[]): ArticleLayout {
   if (sections.raw) {
     return { sections: [], targets: [], trailingFigures: [], rawText: sections.raw, allFiguresIfRaw: [...figures] };
@@ -131,9 +166,20 @@ export function buildArticleLayout(sections: ParsedSections, figures: Figure[]):
     return autoSlot < targets.length ? autoSlot++ : null;
   };
 
+  const cited = citationTargets(rendered, targets);
+
   for (const fig of figures) {
     if (isExplicit(fig)) {
       attach(targets[fig.sectionIndex!], fig);
+      continue;
+    }
+    // No section chosen — put it where the manuscript cites it, if it says.
+    // Only a float the author labelled ("Figure 6: …") can be matched to a
+    // citation; an unlabelled one has no number to look for.
+    const label = parseCaptionLabel(fig.caption);
+    const citedAt = label ? cited.get(label.key) : undefined;
+    if (citedAt !== undefined) {
+      attach(targets[citedAt], fig);
       continue;
     }
     const slot = nextFreeSlot();
