@@ -5,7 +5,7 @@ import path from 'path';
 import { getDb, Figure, ParsedSections } from '@/lib/db';
 import { parseSectionsFromDocx, applyFigureSectionMatches, SectionOverrides } from '@/lib/parse-sections';
 import { sendProofReadyNotification } from '@/lib/email';
-import { extractFiguresFromDocx, extractFiguresFromPdf } from '@/lib/extract-figures';
+import { extractFiguresFromDocx, extractFiguresFromPdf, trimWhitespace } from '@/lib/extract-figures';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -122,7 +122,7 @@ export async function POST(req: NextRequest) {
         // browser and the rendered PDF/preview.
         if (ext === '.pdf') {
           try {
-            buf = await rasterizePdfFirstPage(buf, uploadDir);
+            buf = await trimWhitespace(await rasterizePdfFirstPage(buf, uploadDir));
             ext = '.png';
           } catch (e) {
             console.error('PDF figure rasterization failed:', e);

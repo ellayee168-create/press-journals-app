@@ -6,6 +6,30 @@ import { promisify } from 'util';
 const execFileAsync = promisify(execFile);
 
 /**
+ * Crops the blank margin off a rasterized PDF page. A figure PDF page is a full
+ * sheet with the picture on part of it; left as-is, the proof reserves the whole
+ * sheet's height for the figure and leaves a large gap below it. Returns the
+ * input unchanged if the image is blank or can't be processed.
+ */
+export async function trimWhitespace(img: Buffer): Promise<Buffer> {
+  try {
+    const sharp = (await import('sharp')).default;
+    const flat = await sharp(img).flatten({ background: '#ffffff' }).png().toBuffer();
+    const { info } = await sharp(flat)
+      .trim({ background: '#ffffff', threshold: 12 })
+      .toBuffer({ resolveWithObject: true });
+    if (info.width < 20 || info.height < 20) return img;
+    return await sharp(flat)
+      .trim({ background: '#ffffff', threshold: 12 })
+      .extend({ top: 8, bottom: 8, left: 8, right: 8, background: '#ffffff' })
+      .png()
+      .toBuffer();
+  } catch {
+    return img;
+  }
+}
+
+/**
  * Extract images from a DOCX file using mammoth.
  * Returns an array of absolute paths to the saved images.
  */
@@ -66,11 +90,13 @@ async function tryPdftoppm(pdfPath: string, outputDir: string): Promise<string[]
   try {
     const prefix = path.join(outputDir, 'fig');
     await execFileAsync('pdftoppm', ['-png', '-r', '150', pdfPath, prefix]);
-    return fs
+    const paths = fs
       .readdirSync(outputDir)
       .filter(f => /^fig.+\.png$/.test(f))
       .sort()
       .map(f => path.join(outputDir, f));
+    await trimFiles(paths);
+    return paths;
   } catch {
     return [];
   }
@@ -85,12 +111,18 @@ async function tryGhostscript(pdfPath: string, outputDir: string): Promise<strin
       `-sOutputFile=${outPattern}`,
       pdfPath,
     ]);
-    return fs
+    const paths = fs
       .readdirSync(outputDir)
       .filter(f => /^fig-\d+\.png$/.test(f))
       .sort()
       .map(f => path.join(outputDir, f));
+    await trimFiles(paths);
+    return paths;
   } catch {
     return [];
   }
+}
+
+async function trimFiles(paths: string[]): Promise<void> {
+  for (const p of paths) fs.writeFileSync(p, await trimWhitespace(fs.readFileSync(p)));
 }
