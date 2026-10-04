@@ -3,6 +3,8 @@ import { isAuthed } from '@/lib/admin-auth';
 import { getDb, Submission, Figure } from '@/lib/db';
 import { parseSectionsFromDocx, parseSectionsFromPdf, applyFigureSectionMatches, SectionOverrides } from '@/lib/parse-sections';
 import path from 'path';
+import fs from 'fs';
+import { extractFiguresFromPdf } from '@/lib/extract-figures';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -37,6 +39,28 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   // Re-apply section name matching with the freshly parsed sections
   const figures: Figure[] = JSON.parse(row.figures || '[]');
+
+  // Re-run figure extraction from the stored figures PDF, so improvements to it
+  // (e.g. trimming blank page margins) reach existing submissions. Images are
+  // rewritten in place under the same filenames, so captions, placements and any
+  // admin edits stored on each figure are kept. Skipped unless the re-extraction
+  // yields exactly the figures already on file.
+  const uploadDir = path.dirname(manuscriptPath);
+  const figuresPdf = path.join(uploadDir, 'figures_doc.pdf');
+  if (figures.length && fs.existsSync(figuresPdf)) {
+    const tmpDir = fs.mkdtempSync(path.join(uploadDir, '.reextract_'));
+    try {
+      const fresh = await extractFiguresFromPdf(figuresPdf, tmpDir);
+      const same = fresh.length === figures.length &&
+        figures.every((f, i) => path.basename(f.path) === path.basename(fresh[i]));
+      if (same) fresh.forEach((src, i) => fs.copyFileSync(src, figures[i].path));
+    } catch (e) {
+      console.error('Figure re-extraction failed; keeping stored figures:', e);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  }
+
   applyFigureSectionMatches(figures, parsed);
 
   db.prepare('UPDATE submissions SET sections = ?, references_raw = ?, figures = ?, section_overrides = ? WHERE id = ?').run(
